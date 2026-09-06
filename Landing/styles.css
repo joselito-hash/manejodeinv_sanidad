@@ -695,6 +695,15 @@ tr:hover td {
   color: var(--blue-dark);
 }
 
+.row-btn.danger {
+  color: var(--danger);
+}
+
+.row-btn.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .permission-hidden {
   display: none !important;
 }

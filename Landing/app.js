@@ -1,6 +1,5 @@
 import { supabase } from "../supabaseClient.js";
 
-const OPERATIONAL_ROLES = new Set(["administrador", "sanidad", "supervisor"]);
 const ROLE_LABELS = {
   administrador: "Administrador",
   sanidad: "Sanidad",
@@ -8,11 +7,60 @@ const ROLE_LABELS = {
   consulta: "Consulta"
 };
 
+const ROLE_PERMISSIONS = {
+  administrador: {
+    addProducts: true,
+    editProducts: true,
+    registerMovements: true,
+    adjustStock: true,
+    deactivateProducts: true,
+    deleteProducts: true,
+    manageUsers: true
+  },
+  sanidad: {
+    addProducts: true,
+    editProducts: false,
+    registerMovements: true,
+    adjustStock: true,
+    deactivateProducts: true,
+    deleteProducts: false,
+    manageUsers: false
+  },
+  supervisor: {
+    addProducts: true,
+    editProducts: false,
+    registerMovements: true,
+    adjustStock: true,
+    deactivateProducts: true,
+    deleteProducts: false,
+    manageUsers: false
+  },
+  consulta: {
+    addProducts: false,
+    editProducts: false,
+    registerMovements: false,
+    adjustStock: false,
+    deactivateProducts: false,
+    deleteProducts: false,
+    manageUsers: false
+  }
+};
+
+const NO_PERMISSIONS = Object.freeze({
+  addProducts: false,
+  editProducts: false,
+  registerMovements: false,
+  adjustStock: false,
+  deactivateProducts: false,
+  deleteProducts: false,
+  manageUsers: false
+});
+
 let inventory = [];
 let movements = [];
 let currentUser = null;
 let currentProfile = null;
-let canManageInventory = false;
+let currentPermissions = NO_PERMISSIONS;
 let inventoryState = "loading";
 let movementsState = "loading";
 let authRedirecting = false;
@@ -121,10 +169,13 @@ function mapMovement(row) {
   const productName = product?.nombre || `Producto ${row.producto_id}`;
   const unit = product?.unidad ? ` ${product.unidad}` : "";
   const observation = row.observaciones ? ` · ${row.observaciones}` : "";
+  const movementDetail = type === "ajuste"
+    ? `${formatNumber(row.existencia_anterior)}${unit} → ${formatNumber(row.existencia_nueva)}${unit}`
+    : `${formatNumber(row.cantidad)}${unit}`;
 
   return {
     text: labels[type] || "Movimiento de inventario",
-    detail: `${productName} · ${formatNumber(row.cantidad)}${unit}${observation}`,
+    detail: `${productName} · ${movementDetail}${observation}`,
     type: typeLabels[type] || "Movimiento",
     date: row.created_at || new Date(0).toISOString()
   };
@@ -138,6 +189,44 @@ function stateRow(message, isError = false) {
       </td>
     </tr>
   `;
+}
+
+function renderProductActions(item) {
+  const id = escapeHTML(item.id);
+  const buttons = [];
+
+  if (currentPermissions.registerMovements) {
+    buttons.push(`
+      <button type="button" class="row-btn" data-action="entry" data-id="${id}" title="Registrar entrada">＋</button>
+      <button type="button" class="row-btn" data-action="exit" data-id="${id}" title="Registrar salida">−</button>
+    `);
+  }
+
+  if (currentPermissions.adjustStock) {
+    buttons.push(`
+      <button type="button" class="row-btn" data-action="adjust" data-id="${id}" title="Ajustar existencia">Ajustar</button>
+    `);
+  }
+
+  if (currentPermissions.editProducts) {
+    buttons.push(`
+      <button type="button" class="row-btn" data-action="edit" data-id="${id}" title="Editar producto">Editar</button>
+    `);
+  }
+
+  if (currentPermissions.deactivateProducts) {
+    buttons.push(`
+      <button type="button" class="row-btn" data-action="deactivate" data-id="${id}" title="Dar de baja">Baja</button>
+    `);
+  }
+
+  if (currentPermissions.deleteProducts) {
+    buttons.push(`
+      <button type="button" class="row-btn danger" data-action="delete" data-id="${id}" title="Eliminar definitivamente">Eliminar</button>
+    `);
+  }
+
+  return buttons.join("");
 }
 
 function updateStats() {
@@ -196,10 +285,7 @@ function renderInventory() {
             <td data-label="Estado"><span class="badge ${status}">${getStatusLabel(status)}</span></td>
             <td data-label="Acciones" class="actions-column">
               <div class="row-actions">
-                <button class="row-btn" data-action="entry" data-id="${escapeHTML(item.id)}" title="Entrada">＋</button>
-                <button class="row-btn" data-action="exit" data-id="${escapeHTML(item.id)}" title="Salida">−</button>
-                <button class="row-btn" data-action="edit" data-id="${escapeHTML(item.id)}" title="Editar">Editar</button>
-                <button class="row-btn" data-action="remove" data-id="${escapeHTML(item.id)}" title="Dar de baja">×</button>
+                ${renderProductActions(item)}
               </div>
             </td>
           </tr>
@@ -356,7 +442,10 @@ async function refreshAllData() {
 }
 
 function openModal(item = null) {
-  if (!canManageInventory) return;
+  const allowed = item
+    ? currentPermissions.editProducts
+    : currentPermissions.addProducts;
+  if (!allowed) return;
 
   itemForm.reset();
   document.getElementById("itemId").value = "";
@@ -393,28 +482,23 @@ function setSaveBusy(isBusy) {
 }
 
 function editItem(id) {
-  if (!canManageInventory) return;
+  if (!currentPermissions.editProducts) return;
   const item = inventory.find(product => product.id === String(id));
   if (item) openModal(item);
 }
 
-async function deleteItem(id) {
-  if (!canManageInventory) return;
+async function deactivateItem(id) {
+  if (!currentPermissions.deactivateProducts) return;
 
   const item = inventory.find(product => product.id === String(id));
   if (!item) return;
   if (!confirm(`¿Dar de baja "${item.name}" del inventario?`)) return;
 
   try {
-    const { data: updatedProduct, error } = await supabase
-      .from("productos")
-      .update({ activo: false, updated_at: new Date().toISOString() })
-      .eq("id", item.id)
-      .select("id")
-      .maybeSingle();
-
+    const { error } = await supabase.rpc("dar_de_baja_producto", {
+      p_producto_id: item.id
+    });
     if (error) throw error;
-    if (!updatedProduct) throw new Error("producto_no_actualizado");
 
     await refreshAllData();
     showToast("Insumo dado de baja.");
@@ -424,8 +508,43 @@ async function deleteItem(id) {
   }
 }
 
+async function permanentlyDeleteItem(id) {
+  if (!currentPermissions.deleteProducts) return;
+
+  const item = inventory.find(product => product.id === String(id));
+  if (!item) return;
+
+  const accepted = confirm(
+    `¿Eliminar definitivamente "${item.name}"? Esta acción no se puede deshacer.`
+  );
+  if (!accepted) return;
+
+  try {
+    const { data: deletedProduct, error } = await supabase
+      .from("productos")
+      .delete()
+      .eq("id", item.id)
+      .select("id")
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!deletedProduct) throw new Error("producto_no_eliminado");
+
+    await refreshAllData();
+    showToast("Producto eliminado definitivamente.");
+  } catch (error) {
+    console.error("No fue posible eliminar físicamente el producto.", error);
+
+    if (String(error?.code || "") === "23503") {
+      showToast("No se puede eliminar: el producto tiene movimientos registrados.");
+    } else if (!handlePotentialAuthError(error)) {
+      showToast("No fue posible eliminar definitivamente el producto.");
+    }
+  }
+}
+
 async function adjustStock(id, delta) {
-  if (!canManageInventory || pendingStockOperations.has(String(id))) return;
+  if (!currentPermissions.registerMovements || pendingStockOperations.has(String(id))) return;
 
   const item = inventory.find(product => product.id === String(id));
   if (!item) return;
@@ -472,11 +591,58 @@ async function adjustStock(id, delta) {
   }
 }
 
+async function setExactStock(id) {
+  if (!currentPermissions.adjustStock || pendingStockOperations.has(String(id))) return;
+
+  const item = inventory.find(product => product.id === String(id));
+  if (!item) return;
+
+  const requestedStock = prompt(
+    `Nueva existencia para ${item.name}:`,
+    String(item.stock)
+  );
+  if (requestedStock === null) return;
+
+  const newStock = Number(requestedStock);
+  if (!Number.isFinite(newStock) || newStock < 0) {
+    showToast("Ingresa una existencia válida mayor o igual a cero.");
+    return;
+  }
+
+  if (newStock === Number(item.stock)) {
+    showToast("La existencia no cambió.");
+    return;
+  }
+
+  pendingStockOperations.add(item.id);
+
+  try {
+    const { error } = await supabase.rpc("registrar_movimiento", {
+      p_producto_id: item.id,
+      p_tipo: "ajuste",
+      p_cantidad: newStock,
+      p_observaciones: "Ajuste manual de existencia"
+    });
+
+    if (error) throw error;
+
+    await refreshAllData();
+    showToast("Existencia ajustada correctamente.");
+  } catch (error) {
+    console.error("No fue posible ajustar la existencia.", error);
+    if (!handlePotentialAuthError(error)) showToast("No fue posible ajustar la existencia.");
+  } finally {
+    pendingStockOperations.delete(item.id);
+  }
+}
+
 itemForm.addEventListener("submit", async event => {
   event.preventDefault();
-  if (!canManageInventory) return;
 
   const id = document.getElementById("itemId").value;
+  if (id && !currentPermissions.editProducts) return;
+  if (!id && !currentPermissions.addProducts) return;
+
   const existingItem = id ? inventory.find(item => item.id === id) : null;
   const data = {
     codigo: document.getElementById("code").value.trim(),
@@ -546,13 +712,15 @@ itemForm.addEventListener("submit", async event => {
 
 inventoryBody.addEventListener("click", event => {
   const button = event.target.closest("button[data-action]");
-  if (!button || !canManageInventory) return;
+  if (!button) return;
 
   const { action, id } = button.dataset;
   if (action === "entry") adjustStock(id, 1);
   if (action === "exit") adjustStock(id, -1);
+  if (action === "adjust") setExactStock(id);
   if (action === "edit") editItem(id);
-  if (action === "remove") deleteItem(id);
+  if (action === "deactivate") deactivateItem(id);
+  if (action === "delete") permanentlyDeleteItem(id);
 });
 
 addItemBtn.addEventListener("click", () => openModal());
@@ -608,11 +776,19 @@ function formatRole(role) {
 }
 
 function applyPermissions() {
-  canManageInventory = OPERATIONAL_ROLES.has(String(currentProfile?.rol || "").toLowerCase());
-  document.body.classList.toggle("role-readonly", !canManageInventory);
-  addItemBtn.classList.toggle("permission-hidden", !canManageInventory);
-  responsiveAddAction.classList.toggle("permission-hidden", !canManageInventory);
-  responsiveAddItemBtn.disabled = !canManageInventory;
+  const role = String(currentProfile?.rol || "").toLowerCase();
+  currentPermissions = ROLE_PERMISSIONS[role] || NO_PERMISSIONS;
+
+  const hasProductActions = currentPermissions.editProducts
+    || currentPermissions.registerMovements
+    || currentPermissions.adjustStock
+    || currentPermissions.deactivateProducts
+    || currentPermissions.deleteProducts;
+
+  document.body.classList.toggle("role-readonly", !hasProductActions);
+  addItemBtn.classList.toggle("permission-hidden", !currentPermissions.addProducts);
+  responsiveAddAction.classList.toggle("permission-hidden", !currentPermissions.addProducts);
+  responsiveAddItemBtn.disabled = !currentPermissions.addProducts;
   queueResponsiveUiUpdate();
 }
 
@@ -769,7 +945,7 @@ let responsiveUiFrame;
 function updateResponsiveUi() {
   responsiveUiFrame = null;
 
-  if (!responsiveLayout.matches || !canManageInventory) {
+  if (!responsiveLayout.matches || !currentPermissions.addProducts) {
     if (!responsiveLayout.matches) {
       document.documentElement.style.removeProperty("--responsive-nav-height");
     }
