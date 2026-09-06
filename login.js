@@ -12,6 +12,8 @@ const togglePassword = document.getElementById("togglePassword");
 const loginMessage = document.getElementById("loginMessage");
 const loginButton = document.getElementById("loginButton");
 const authBootstrapStatus = document.getElementById("authBootstrapStatus");
+const welcomeTransition = document.getElementById("welcomeTransition");
+const welcomePhrase = document.getElementById("welcomePhrase");
 
 const forgotPassword = document.getElementById("forgotPassword");
 const forgotModal = document.getElementById("forgotModal");
@@ -20,6 +22,68 @@ const closeForgotAction = document.getElementById("closeForgotAction");
 
 let currentSlide = 0;
 let carouselTimer;
+let welcomeTransitionStarted = false;
+
+function getEmployeeNumberFromUser(user, fallback = "") {
+  return fallback || String(user?.email || "").split("@")[0];
+}
+
+function getWelcomePhrases(name) {
+  const hour = new Date().getHours();
+  const timeGreeting = hour < 12
+    ? `Buen día, ${name}`
+    : hour < 19
+      ? `Buenas tardes, ${name}`
+      : `Buenas noches, ${name}`;
+
+  return [
+    timeGreeting,
+    `Es un gusto verte, ${name}`,
+    `Qué bueno tenerte de vuelta, ${name}`,
+    `Todo está listo para ti, ${name}`
+  ];
+}
+
+async function getWelcomeName(user, fallbackEmployeeNumber) {
+  try {
+    const { data: profile, error } = await supabase
+      .from("perfiles")
+      .select("nombre")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (profile?.nombre?.trim()) return profile.nombre.trim();
+  } catch (error) {
+    console.error("No fue posible obtener el nombre para la bienvenida.", error);
+  }
+
+  const employee = getEmployeeNumberFromUser(user, fallbackEmployeeNumber);
+  return employee ? `Colaborador ${employee}` : "de nuevo";
+}
+
+async function showWelcomeAndRedirect(user, fallbackEmployeeNumber = "") {
+  if (welcomeTransitionStarted) return;
+  welcomeTransitionStarted = true;
+  clearInterval(carouselTimer);
+
+  const name = await getWelcomeName(user, fallbackEmployeeNumber);
+  const phrases = getWelcomePhrases(name);
+  welcomePhrase.textContent = phrases[Math.floor(Math.random() * phrases.length)];
+
+  authBootstrapStatus.hidden = true;
+  welcomeTransition.hidden = false;
+  document.body.classList.remove("auth-pending");
+
+  requestAnimationFrame(() => {
+    document.body.classList.add("welcome-active");
+    welcomeTransition.classList.add("is-visible");
+  });
+
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  await new Promise(resolve => setTimeout(resolve, reduceMotion ? 650 : 2100));
+  window.location.replace("/Landing/inventarios.html");
+}
 
 function showSlide(index) {
   slides.forEach((slide, i) => {
@@ -121,7 +185,7 @@ loginForm.addEventListener("submit", async event => {
   loginButton.textContent = "Iniciando sesión...";
 
   try {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password: passwordValue
     });
@@ -141,7 +205,7 @@ loginForm.addEventListener("submit", async event => {
 
     loginMessage.textContent = "Acceso correcto. Redirigiendo...";
     loginMessage.classList.add("success");
-    window.location.replace("/Landing/inventarios.html");
+    await showWelcomeAndRedirect(data.user, employeeValue);
   } catch (error) {
     console.error("Error de conexión durante el inicio de sesión.", error);
     loginMessage.textContent = "No fue posible iniciar sesión. Intenta de nuevo.";
@@ -192,7 +256,7 @@ async function checkExistingSession() {
     const { data, error } = await supabase.auth.getUser();
 
     if (!error && data.user) {
-      window.location.replace("/Landing/inventarios.html");
+      await showWelcomeAndRedirect(data.user);
       return;
     }
 
