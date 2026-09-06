@@ -16,6 +16,7 @@ let canManageInventory = false;
 let inventoryState = "loading";
 let movementsState = "loading";
 let authRedirecting = false;
+let logoutTransitionStarted = false;
 const pendingStockOperations = new Set();
 
 const inventoryBody = document.getElementById("inventoryBody");
@@ -50,6 +51,8 @@ const currentUserNumber = document.getElementById("currentUserNumber");
 const currentUserRole = document.getElementById("currentUserRole");
 const logoutBtn = document.getElementById("logoutBtn");
 const appBootstrapStatus = document.getElementById("appBootstrapStatus");
+const logoutTransition = document.getElementById("logoutTransition");
+const logoutPhrase = document.getElementById("logoutPhrase");
 
 function getStatus(item) {
   if (Number(item.stock) <= 0) return "out";
@@ -641,15 +644,56 @@ function redirectToLogin(message = "Sesión expirada.") {
   setTimeout(() => window.location.replace("/"), 350);
 }
 
+function getLogoutPhrases(name) {
+  const hour = new Date().getHours();
+  const timeFarewell = hour < 12
+    ? `Que tengas un excelente día, ${name}`
+    : hour < 19
+      ? `Que tengas una excelente tarde, ${name}`
+      : `Que tengas una excelente noche, ${name}`;
+
+  return [
+    `Hasta pronto, ${name}`,
+    `Fue un gusto verte, ${name}`,
+    timeFarewell,
+    `Nos vemos pronto, ${name}`
+  ];
+}
+
+function startLogoutTransition() {
+  const name = currentProfile?.nombre?.trim() || "colaborador";
+  const phrases = getLogoutPhrases(name);
+  logoutPhrase.textContent = phrases[Math.floor(Math.random() * phrases.length)];
+
+  logoutTransition.hidden = false;
+  requestAnimationFrame(() => {
+    document.body.classList.add("logout-active");
+    logoutTransition.classList.add("is-visible");
+  });
+}
+
 logoutBtn.addEventListener("click", async () => {
+  if (logoutTransitionStarted) return;
+  logoutTransitionStarted = true;
+  authRedirecting = true;
   logoutBtn.disabled = true;
   logoutBtn.textContent = "Cerrando...";
+  startLogoutTransition();
+
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const minimumDisplayTime = new Promise(resolve => {
+    setTimeout(resolve, reduceMotion ? 650 : 2100);
+  });
 
   try {
-    const { error } = await supabase.auth.signOut();
+    const [{ error }] = await Promise.all([
+      supabase.auth.signOut(),
+      minimumDisplayTime
+    ]);
     if (error) console.error("Supabase no pudo completar el cierre de sesión.", error);
   } catch (error) {
     console.error("Error de conexión al cerrar sesión.", error);
+    await minimumDisplayTime;
   } finally {
     window.location.replace("/");
   }

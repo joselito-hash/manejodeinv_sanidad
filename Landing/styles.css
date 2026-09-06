@@ -59,6 +59,122 @@ body {
   visibility: hidden;
 }
 
+.logout-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 480ms ease,
+    visibility 0s linear 480ms;
+}
+
+.logout-transition[hidden] {
+  display: none;
+}
+
+.logout-transition::before,
+.logout-transition::after {
+  content: "";
+  position: absolute;
+  width: min(440px, 72vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(10px);
+  opacity: 0;
+  transform: scale(0.82);
+  transition:
+    opacity 900ms ease 180ms,
+    transform 1400ms cubic-bezier(0.2, 0.7, 0.2, 1) 120ms;
+}
+
+.logout-transition::before {
+  top: -22%;
+  left: -12%;
+  background: rgba(111, 143, 164, 0.13);
+}
+
+.logout-transition::after {
+  right: -13%;
+  bottom: -26%;
+  background: rgba(215, 202, 184, 0.56);
+}
+
+.logout-transition.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.logout-transition.is-visible::before,
+.logout-transition.is-visible::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.logout-transition-content {
+  position: relative;
+  z-index: 1;
+  width: min(680px, 100%);
+  text-align: center;
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+.logout-transition.is-visible .logout-transition-content {
+  animation: logoutMessageIn 700ms cubic-bezier(0.2, 0.75, 0.25, 1) 280ms forwards;
+}
+
+.logout-transition-brand,
+.logout-transition-note {
+  display: block;
+  color: var(--blue-dark);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.logout-transition-phrase {
+  margin: 17px 0 15px;
+  font-size: clamp(30px, 5vw, 58px);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.logout-transition-note {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+}
+
+.logout-active .app-shell {
+  opacity: 0;
+  transform: scale(0.985);
+  pointer-events: none;
+}
+
+@keyframes logoutMessageIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 button,
 input,
 select {
@@ -80,6 +196,9 @@ select:disabled {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 230px 1fr;
+  transition:
+    opacity 420ms ease,
+    transform 520ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .sidebar {
@@ -893,5 +1012,18 @@ tr:hover td {
   .responsive-add-action,
   .responsive-add-action.is-visible {
     transition: none;
+  }
+
+  .app-shell,
+  .logout-transition,
+  .logout-transition::before,
+  .logout-transition::after {
+    transition: none;
+  }
+
+  .logout-transition.is-visible .logout-transition-content {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 }
