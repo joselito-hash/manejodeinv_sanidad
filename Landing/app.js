@@ -1,22 +1,22 @@
-const defaultInventory = [
-  { id: 1, code: "SAN-001", name: "Detergente alcalino", category: "Químicos", area: "Almacén de sanidad", stock: 18, minStock: 10, unit: "L", cost: 96.5 },
-  { id: 2, code: "SAN-002", name: "Desinfectante grado alimenticio", category: "Químicos", area: "Producción", stock: 7, minStock: 12, unit: "L", cost: 124.0 },
-  { id: 3, code: "SAN-003", name: "Jabón para manos", category: "Consumibles", area: "Servicios generales", stock: 24, minStock: 15, unit: "L", cost: 68.0 },
-  { id: 4, code: "SAN-004", name: "Guantes de nitrilo", category: "Protección", area: "Sanidad", stock: 0, minStock: 8, unit: "caja", cost: 185.0 },
-  { id: 5, code: "SAN-005", name: "Escoba sanitaria", category: "Limpieza", area: "Producción", stock: 9, minStock: 4, unit: "pza", cost: 132.0 },
-  { id: 6, code: "SAN-006", name: "Fibra de limpieza", category: "Limpieza", area: "Almacén de sanidad", stock: 14, minStock: 10, unit: "pza", cost: 28.5 },
-  { id: 7, code: "SAN-007", name: "Toalla interdoblada", category: "Consumibles", area: "Servicios generales", stock: 11, minStock: 15, unit: "paquete", cost: 54.0 },
-  { id: 8, code: "SAN-008", name: "Atomizador industrial", category: "Limpieza", area: "Sanidad", stock: 6, minStock: 5, unit: "pza", cost: 75.0 }
-];
+import { supabase } from "../supabaseClient.js";
 
-const defaultMovements = [
-  { text: "Alta de inventario inicial", detail: "Detergente alcalino · 18 L", type: "Entrada", date: new Date().toISOString() },
-  { text: "Consumo registrado", detail: "Desinfectante grado alimenticio · 5 L", type: "Salida", date: new Date(Date.now() - 86400000).toISOString() },
-  { text: "Ajuste de existencia", detail: "Guantes de nitrilo · stock actualizado a 0 cajas", type: "Ajuste", date: new Date(Date.now() - 172800000).toISOString() }
-];
+const OPERATIONAL_ROLES = new Set(["administrador", "sanidad", "supervisor"]);
+const ROLE_LABELS = {
+  administrador: "Administrador",
+  sanidad: "Sanidad",
+  supervisor: "Supervisor",
+  consulta: "Consulta"
+};
 
-let inventory = JSON.parse(localStorage.getItem("bimboSanidadInventory")) || defaultInventory;
-let movements = JSON.parse(localStorage.getItem("bimboSanidadMovements")) || defaultMovements;
+let inventory = [];
+let movements = [];
+let currentUser = null;
+let currentProfile = null;
+let canManageInventory = false;
+let inventoryState = "loading";
+let movementsState = "loading";
+let authRedirecting = false;
+const pendingStockOperations = new Set();
 
 const inventoryBody = document.getElementById("inventoryBody");
 const searchInput = document.getElementById("searchInput");
@@ -39,13 +39,17 @@ const sidebar = document.querySelector(".sidebar");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const cancelBtn = document.getElementById("cancelBtn");
 const modalTitle = document.getElementById("modalTitle");
-const resetDataBtn = document.getElementById("resetDataBtn");
+const refreshDataBtn = document.getElementById("refreshDataBtn");
+const saveItemBtn = document.getElementById("saveItemBtn");
+const stockInput = document.getElementById("stock");
+const stockEditHelp = document.getElementById("stockEditHelp");
 const toast = document.getElementById("toast");
 
-function saveData() {
-  localStorage.setItem("bimboSanidadInventory", JSON.stringify(inventory));
-  localStorage.setItem("bimboSanidadMovements", JSON.stringify(movements));
-}
+const currentUserName = document.getElementById("currentUserName");
+const currentUserNumber = document.getElementById("currentUserNumber");
+const currentUserRole = document.getElementById("currentUserRole");
+const logoutBtn = document.getElementById("logoutBtn");
+const appBootstrapStatus = document.getElementById("appBootstrapStatus");
 
 function getStatus(item) {
   if (Number(item.stock) <= 0) return "out";
@@ -69,8 +73,14 @@ function formatCurrency(value) {
   }).format(value);
 }
 
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString("es-MX", {
+    maximumFractionDigits: 2
+  });
+}
+
 function escapeHTML(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -78,7 +88,84 @@ function escapeHTML(value) {
     .replaceAll("'", "&#039;");
 }
 
+function mapProduct(row) {
+  return {
+    id: String(row.id),
+    code: row.codigo || "",
+    name: row.nombre || "",
+    category: row.categoria || "",
+    area: row.area || "",
+    stock: Number(row.existencia || 0),
+    minStock: Number(row.stock_minimo || 0),
+    unit: row.unidad || "",
+    cost: Number(row.costo || 0)
+  };
+}
+
+function mapMovement(row) {
+  const product = Array.isArray(row.productos) ? row.productos[0] : row.productos;
+  const type = String(row.tipo || "ajuste").toLowerCase();
+  const labels = {
+    entrada: "Entrada de inventario",
+    salida: "Salida de inventario",
+    ajuste: "Ajuste de inventario"
+  };
+  const typeLabels = {
+    entrada: "Entrada",
+    salida: "Salida",
+    ajuste: "Ajuste"
+  };
+  const productName = product?.nombre || `Producto ${row.producto_id}`;
+  const unit = product?.unidad ? ` ${product.unidad}` : "";
+  const observation = row.observaciones ? ` · ${row.observaciones}` : "";
+
+  return {
+    text: labels[type] || "Movimiento de inventario",
+    detail: `${productName} · ${formatNumber(row.cantidad)}${unit}${observation}`,
+    type: typeLabels[type] || "Movimiento",
+    date: row.created_at || new Date(0).toISOString()
+  };
+}
+
+function stateRow(message, isError = false) {
+  return `
+    <tr>
+      <td colspan="9" data-label="">
+        <div class="empty-state${isError ? " error" : ""}">${escapeHTML(message)}</div>
+      </td>
+    </tr>
+  `;
+}
+
+function updateStats() {
+  totalItems.textContent = inventory.length;
+  lowStockCount.textContent = inventory.filter(item => getStatus(item) === "low").length;
+  outStockCount.textContent = inventory.filter(item => getStatus(item) === "out").length;
+
+  const totalValue = inventory.reduce((sum, item) => {
+    return sum + (Number(item.stock) * Number(item.cost || 0));
+  }, 0);
+
+  inventoryValue.textContent = formatCurrency(totalValue);
+}
+
 function renderInventory() {
+  updateStats();
+
+  if (inventoryState === "loading") {
+    inventoryBody.innerHTML = stateRow("Cargando inventario...");
+    resultCount.textContent = "Cargando...";
+    renderAlerts();
+    return;
+  }
+
+  if (inventoryState === "error") {
+    inventoryBody.innerHTML = stateRow("No fue posible cargar el inventario.", true);
+    resultCount.textContent = "Sin datos";
+    renderAlerts();
+    return;
+  }
+
   const query = searchInput.value.trim().toLowerCase();
   const selectedCategory = categoryFilter.value;
   const selectedStatus = statusFilter.value;
@@ -100,45 +187,40 @@ function renderInventory() {
             <td data-label="Insumo"><span class="item-name">${escapeHTML(item.name)}</span></td>
             <td data-label="Categoría">${escapeHTML(item.category)}</td>
             <td data-label="Área">${escapeHTML(item.area)}</td>
-            <td data-label="Existencia">${Number(item.stock).toLocaleString("es-MX")}</td>
-            <td data-label="Mínimo">${Number(item.minStock).toLocaleString("es-MX")}</td>
+            <td data-label="Existencia">${formatNumber(item.stock)}</td>
+            <td data-label="Mínimo">${formatNumber(item.minStock)}</td>
             <td data-label="Unidad">${escapeHTML(item.unit)}</td>
             <td data-label="Estado"><span class="badge ${status}">${getStatusLabel(status)}</span></td>
-            <td data-label="Acciones">
+            <td data-label="Acciones" class="actions-column">
               <div class="row-actions">
-                <button class="row-btn" onclick="adjustStock(${item.id}, 1)" title="Entrada">＋</button>
-                <button class="row-btn" onclick="adjustStock(${item.id}, -1)" title="Salida">−</button>
-                <button class="row-btn" onclick="editItem(${item.id})" title="Editar">Editar</button>
-                <button class="row-btn" onclick="deleteItem(${item.id})" title="Eliminar">×</button>
+                <button class="row-btn" data-action="entry" data-id="${escapeHTML(item.id)}" title="Entrada">＋</button>
+                <button class="row-btn" data-action="exit" data-id="${escapeHTML(item.id)}" title="Salida">−</button>
+                <button class="row-btn" data-action="edit" data-id="${escapeHTML(item.id)}" title="Editar">Editar</button>
+                <button class="row-btn" data-action="remove" data-id="${escapeHTML(item.id)}" title="Dar de baja">×</button>
               </div>
             </td>
           </tr>
         `;
       }).join("")
-    : `<tr><td colspan="9"><div class="empty-state">No se encontraron registros con los filtros seleccionados.</div></td></tr>`;
+    : stateRow("No se encontraron registros con los filtros seleccionados.");
 
   resultCount.textContent = `${filtered.length} ${filtered.length === 1 ? "registro" : "registros"}`;
-  updateStats();
   renderAlerts();
 }
 
-function updateStats() {
-  totalItems.textContent = inventory.length;
-  lowStockCount.textContent = inventory.filter(item => getStatus(item) === "low").length;
-  outStockCount.textContent = inventory.filter(item => getStatus(item) === "out").length;
-
-  const totalValue = inventory.reduce((sum, item) => {
-    return sum + (Number(item.stock) * Number(item.cost || 0));
-  }, 0);
-
-  inventoryValue.textContent = formatCurrency(totalValue);
-}
-
 function renderMovements() {
-  const sorted = [...movements].sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (movementsState === "loading") {
+    movementList.innerHTML = '<div class="empty-state">Cargando movimientos...</div>';
+    return;
+  }
 
-  movementList.innerHTML = sorted.length
-    ? sorted.map(movement => `
+  if (movementsState === "error") {
+    movementList.innerHTML = '<div class="empty-state error">No fue posible cargar los movimientos.</div>';
+    return;
+  }
+
+  movementList.innerHTML = movements.length
+    ? movements.map(movement => `
         <article class="movement-item">
           <div>
             <strong>${escapeHTML(movement.text)}</strong>
@@ -151,10 +233,20 @@ function renderMovements() {
           <span class="movement-type">${escapeHTML(movement.type)}</span>
         </article>
       `).join("")
-    : `<div class="empty-state">Aún no hay movimientos registrados.</div>`;
+    : '<div class="empty-state">Aún no hay movimientos registrados.</div>';
 }
 
 function renderAlerts() {
+  if (inventoryState === "loading") {
+    alertsList.innerHTML = '<div class="empty-state">Cargando inventario...</div>';
+    return;
+  }
+
+  if (inventoryState === "error") {
+    alertsList.innerHTML = '<div class="empty-state error">No fue posible cargar el inventario.</div>';
+    return;
+  }
+
   const alertItems = inventory
     .filter(item => getStatus(item) !== "ok")
     .sort((a, b) => Number(a.stock) - Number(b.stock));
@@ -167,18 +259,107 @@ function renderAlerts() {
           <article class="alert-card">
             <span class="badge ${status}">${getStatusLabel(status)}</span>
             <h3>${escapeHTML(item.name)}</h3>
-            <p>${escapeHTML(item.area)} · ${Number(item.stock)} ${escapeHTML(item.unit)} disponibles.</p>
-            <strong>Reposición sugerida: ${missing} ${escapeHTML(item.unit)}</strong>
+            <p>${escapeHTML(item.area)} · ${formatNumber(item.stock)} ${escapeHTML(item.unit)} disponibles.</p>
+            <strong>Reposición sugerida: ${formatNumber(missing)} ${escapeHTML(item.unit)}</strong>
           </article>
         `;
       }).join("")
-    : `<div class="empty-state">No hay alertas activas. El inventario se encuentra dentro de los mínimos establecidos.</div>`;
+    : '<div class="empty-state">No hay alertas activas. El inventario se encuentra dentro de los mínimos establecidos.</div>';
+}
+
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
+function handlePotentialAuthError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  const expired = error?.status === 401 || message.includes("jwt") || message.includes("session");
+
+  if (expired) redirectToLogin("Sesión expirada.");
+  return expired;
+}
+
+async function cargarInventario() {
+  inventoryState = "loading";
+  renderInventory();
+
+  try {
+    const { data, error } = await supabase
+      .from("productos")
+      .select("id,codigo,nombre,categoria,area,existencia,stock_minimo,unidad,costo,activo,created_at,updated_at")
+      .eq("activo", true)
+      .order("nombre", { ascending: true })
+      .order("codigo", { ascending: true });
+
+    if (error) throw error;
+
+    inventory = (data || []).map(mapProduct);
+    inventoryState = "ready";
+    renderInventory();
+    return true;
+  } catch (error) {
+    console.error("No fue posible cargar productos desde Supabase.", error);
+    inventory = [];
+    inventoryState = "error";
+    renderInventory();
+    handlePotentialAuthError(error);
+    return false;
+  }
+}
+
+async function cargarMovimientos() {
+  movementsState = "loading";
+  renderMovements();
+
+  try {
+    const { data, error } = await supabase
+      .from("movimientos")
+      .select(`
+        id,
+        producto_id,
+        tipo,
+        cantidad,
+        existencia_anterior,
+        existencia_nueva,
+        observaciones,
+        created_at,
+        productos (codigo,nombre,unidad)
+      `)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (error) throw error;
+
+    movements = (data || []).map(mapMovement);
+    movementsState = "ready";
+    renderMovements();
+    return true;
+  } catch (error) {
+    console.error("No fue posible cargar movimientos desde Supabase.", error);
+    movements = [];
+    movementsState = "error";
+    renderMovements();
+    handlePotentialAuthError(error);
+    return false;
+  }
+}
+
+async function refreshAllData() {
+  const results = await Promise.all([cargarInventario(), cargarMovimientos()]);
+  return results.every(Boolean);
 }
 
 function openModal(item = null) {
+  if (!canManageInventory) return;
+
   itemForm.reset();
   document.getElementById("itemId").value = "";
   modalTitle.textContent = item ? "Editar insumo" : "Nuevo insumo";
+  stockInput.disabled = Boolean(item);
+  stockEditHelp.hidden = !item;
 
   if (item) {
     document.getElementById("itemId").value = item.id;
@@ -186,7 +367,7 @@ function openModal(item = null) {
     document.getElementById("name").value = item.name;
     document.getElementById("category").value = item.category;
     document.getElementById("area").value = item.area;
-    document.getElementById("stock").value = item.stock;
+    stockInput.value = item.stock;
     document.getElementById("minStock").value = item.minStock;
     document.getElementById("unit").value = item.unit;
     document.getElementById("cost").value = item.cost;
@@ -197,46 +378,53 @@ function openModal(item = null) {
 }
 
 function closeModal() {
+  if (saveItemBtn.disabled) return;
   modalBackdrop.hidden = true;
 }
 
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add("show");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2200);
-}
-
-function addMovement(text, detail, type) {
-  movements.push({
-    text,
-    detail,
-    type,
-    date: new Date().toISOString()
-  });
+function setSaveBusy(isBusy) {
+  saveItemBtn.disabled = isBusy;
+  cancelBtn.disabled = isBusy;
+  closeModalBtn.disabled = isBusy;
+  saveItemBtn.textContent = isBusy ? "Guardando..." : "Guardar insumo";
 }
 
 function editItem(id) {
-  const item = inventory.find(item => item.id === id);
+  if (!canManageInventory) return;
+  const item = inventory.find(product => product.id === String(id));
   if (item) openModal(item);
 }
 
-function deleteItem(id) {
-  const item = inventory.find(item => item.id === id);
+async function deleteItem(id) {
+  if (!canManageInventory) return;
+
+  const item = inventory.find(product => product.id === String(id));
   if (!item) return;
+  if (!confirm(`¿Dar de baja "${item.name}" del inventario?`)) return;
 
-  if (!confirm(`¿Eliminar "${item.name}" del inventario?`)) return;
+  try {
+    const { data: updatedProduct, error } = await supabase
+      .from("productos")
+      .update({ activo: false, updated_at: new Date().toISOString() })
+      .eq("id", item.id)
+      .select("id")
+      .maybeSingle();
 
-  inventory = inventory.filter(item => item.id !== id);
-  addMovement("Insumo eliminado", `${item.name} · ${item.code}`, "Ajuste");
-  saveData();
-  renderInventory();
-  renderMovements();
-  showToast("Insumo eliminado.");
+    if (error) throw error;
+    if (!updatedProduct) throw new Error("producto_no_actualizado");
+
+    await refreshAllData();
+    showToast("Insumo dado de baja.");
+  } catch (error) {
+    console.error("No fue posible dar de baja el producto.", error);
+    if (!handlePotentialAuthError(error)) showToast("No fue posible dar de baja el insumo.");
+  }
 }
 
-function adjustStock(id, delta) {
-  const item = inventory.find(item => item.id === id);
+async function adjustStock(id, delta) {
+  if (!canManageInventory || pendingStockOperations.has(String(id))) return;
+
+  const item = inventory.find(product => product.id === String(id));
   if (!item) return;
 
   const amount = Number(prompt(
@@ -248,39 +436,57 @@ function adjustStock(id, delta) {
 
   if (!Number.isFinite(amount) || amount <= 0) return;
 
-  const previous = Number(item.stock);
-  const next = delta > 0 ? previous + amount : Math.max(previous - amount, 0);
-  item.stock = Number(next.toFixed(2));
+  if (delta < 0 && amount > Number(item.stock)) {
+    showToast("La salida no puede dejar una existencia negativa.");
+    return;
+  }
 
-  addMovement(
-    delta > 0 ? "Entrada de inventario" : "Salida de inventario",
-    `${item.name} · ${amount} ${item.unit}`,
-    delta > 0 ? "Entrada" : "Salida"
-  );
+  pendingStockOperations.add(item.id);
 
-  saveData();
-  renderInventory();
-  renderMovements();
-  showToast(delta > 0 ? "Entrada registrada." : "Salida registrada.");
+  try {
+    const { error } = await supabase.rpc("registrar_movimiento", {
+      p_producto_id: item.id,
+      p_tipo: delta > 0 ? "entrada" : "salida",
+      p_cantidad: amount,
+      p_observaciones: null
+    });
+
+    if (error) throw error;
+
+    await refreshAllData();
+    showToast(delta > 0 ? "Entrada registrada." : "Salida registrada.");
+  } catch (error) {
+    console.error("No fue posible registrar el movimiento.", error);
+    const insufficientStock = String(error?.message || "").includes("existencia_insuficiente");
+
+    if (insufficientStock) {
+      showToast("La salida no puede dejar una existencia negativa.");
+    } else if (!handlePotentialAuthError(error)) {
+      showToast("No fue posible registrar el movimiento.");
+    }
+  } finally {
+    pendingStockOperations.delete(item.id);
+  }
 }
 
-itemForm.addEventListener("submit", event => {
+itemForm.addEventListener("submit", async event => {
   event.preventDefault();
+  if (!canManageInventory) return;
 
-  const id = Number(document.getElementById("itemId").value);
+  const id = document.getElementById("itemId").value;
+  const existingItem = id ? inventory.find(item => item.id === id) : null;
   const data = {
-    code: document.getElementById("code").value.trim(),
-    name: document.getElementById("name").value.trim(),
-    category: document.getElementById("category").value,
+    codigo: document.getElementById("code").value.trim(),
+    nombre: document.getElementById("name").value.trim(),
+    categoria: document.getElementById("category").value,
     area: document.getElementById("area").value.trim(),
-    stock: Number(document.getElementById("stock").value),
-    minStock: Number(document.getElementById("minStock").value),
-    unit: document.getElementById("unit").value.trim(),
-    cost: Number(document.getElementById("cost").value)
+    stock_minimo: Number(document.getElementById("minStock").value),
+    unidad: document.getElementById("unit").value.trim(),
+    costo: Number(document.getElementById("cost").value)
   };
 
   const duplicate = inventory.find(item =>
-    item.code.toLowerCase() === data.code.toLowerCase() && item.id !== id
+    item.code.toLowerCase() === data.codigo.toLowerCase() && item.id !== id
   );
 
   if (duplicate) {
@@ -288,26 +494,62 @@ itemForm.addEventListener("submit", event => {
     return;
   }
 
-  if (id) {
-    const index = inventory.findIndex(item => item.id === id);
-    if (index !== -1) {
-      inventory[index] = { ...inventory[index], ...data };
-      addMovement("Insumo actualizado", `${data.name} · ${data.code}`, "Ajuste");
-    }
-  } else {
-    const newItem = {
-      id: Date.now(),
-      ...data
-    };
-    inventory.push(newItem);
-    addMovement("Nuevo insumo registrado", `${data.name} · ${data.stock} ${data.unit}`, "Entrada");
+  if (id && !existingItem) {
+    showToast("El insumo ya no está disponible.");
+    return;
   }
 
-  saveData();
-  renderInventory();
-  renderMovements();
-  closeModal();
-  showToast(id ? "Cambios guardados." : "Insumo agregado.");
+  setSaveBusy(true);
+
+  try {
+    if (id) {
+      const { data: updatedProduct, error } = await supabase
+        .from("productos")
+        .update({ ...data, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select("id")
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!updatedProduct) throw new Error("producto_no_actualizado");
+    } else {
+      const initialStock = Number(stockInput.value);
+
+      if (!Number.isFinite(initialStock) || initialStock < 0) {
+        showToast("Ingresa una existencia válida.");
+        return;
+      }
+
+      const { data: insertedProduct, error } = await supabase
+        .from("productos")
+        .insert({ ...data, existencia: initialStock, activo: true })
+        .select("id")
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!insertedProduct) throw new Error("producto_no_insertado");
+    }
+
+    await cargarInventario();
+    modalBackdrop.hidden = true;
+    showToast(id ? "Cambios guardados." : "Insumo agregado.");
+  } catch (error) {
+    console.error("No fue posible guardar el producto.", error);
+    if (!handlePotentialAuthError(error)) showToast("No fue posible guardar el insumo.");
+  } finally {
+    setSaveBusy(false);
+  }
+});
+
+inventoryBody.addEventListener("click", event => {
+  const button = event.target.closest("button[data-action]");
+  if (!button || !canManageInventory) return;
+
+  const { action, id } = button.dataset;
+  if (action === "entry") adjustStock(id, 1);
+  if (action === "exit") adjustStock(id, -1);
+  if (action === "edit") editItem(id);
+  if (action === "remove") deleteItem(id);
 });
 
 addItemBtn.addEventListener("click", () => openModal());
@@ -344,22 +586,129 @@ document.querySelectorAll(".nav-item").forEach(button => {
     };
 
     document.getElementById("pageTitle").textContent = titles[view];
-
-    if (view === "movimientos") renderMovements();
+    if (view === "movimientos" && currentUser) cargarMovimientos();
     if (view === "alertas") renderAlerts();
   });
 });
 
-resetDataBtn.addEventListener("click", () => {
-  if (!confirm("¿Restaurar los datos de ejemplo? Se perderán los cambios actuales.")) return;
-
-  inventory = structuredClone(defaultInventory);
-  movements = structuredClone(defaultMovements);
-  saveData();
-  renderInventory();
-  renderMovements();
-  showToast("Datos de ejemplo restaurados.");
+refreshDataBtn.addEventListener("click", async () => {
+  refreshDataBtn.disabled = true;
+  refreshDataBtn.textContent = "Actualizando...";
+  const success = await refreshAllData();
+  refreshDataBtn.disabled = false;
+  refreshDataBtn.textContent = "Actualizar datos";
+  showToast(success ? "Datos actualizados." : "No fue posible actualizar todos los datos.");
 });
+
+function formatRole(role) {
+  return ROLE_LABELS[String(role || "").toLowerCase()] || "Consulta";
+}
+
+function applyPermissions() {
+  canManageInventory = OPERATIONAL_ROLES.has(String(currentProfile?.rol || "").toLowerCase());
+  document.body.classList.toggle("role-readonly", !canManageInventory);
+  addItemBtn.classList.toggle("permission-hidden", !canManageInventory);
+  responsiveAddAction.classList.toggle("permission-hidden", !canManageInventory);
+  responsiveAddItemBtn.disabled = !canManageInventory;
+  queueResponsiveUiUpdate();
+}
+
+function renderCurrentUser() {
+  currentUserName.textContent = currentProfile.nombre;
+  currentUserNumber.textContent = `Colaborador ${currentProfile.numero_colaborador}`;
+  currentUserRole.textContent = formatRole(currentProfile.rol);
+}
+
+function revealApplication() {
+  document.body.classList.remove("app-auth-pending");
+  appBootstrapStatus.hidden = true;
+  queueResponsiveUiUpdate();
+}
+
+function showFatalError(message) {
+  appBootstrapStatus.textContent = message;
+  appBootstrapStatus.classList.add("error");
+  appBootstrapStatus.hidden = false;
+}
+
+function redirectToLogin(message = "Sesión expirada.") {
+  if (authRedirecting) return;
+  authRedirecting = true;
+  appBootstrapStatus.textContent = message;
+  appBootstrapStatus.classList.remove("error");
+  appBootstrapStatus.hidden = false;
+  document.body.classList.add("app-auth-pending");
+  setTimeout(() => window.location.replace("/"), 350);
+}
+
+logoutBtn.addEventListener("click", async () => {
+  logoutBtn.disabled = true;
+  logoutBtn.textContent = "Cerrando...";
+
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error("Supabase no pudo completar el cierre de sesión.", error);
+  } catch (error) {
+    console.error("Error de conexión al cerrar sesión.", error);
+  } finally {
+    window.location.replace("/");
+  }
+});
+
+supabase.auth.onAuthStateChange(event => {
+  if (event === "SIGNED_OUT" && !authRedirecting) redirectToLogin("Sesión expirada.");
+});
+
+async function initializeApplication() {
+  appBootstrapStatus.textContent = "Verificando sesión...";
+
+  try {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    const user = userData?.user;
+
+    if (userError || !user) {
+      if (userError && userError.name !== "AuthSessionMissingError") {
+        console.error("No fue posible validar la sesión.", userError);
+      }
+      redirectToLogin("Sesión expirada.");
+      return;
+    }
+
+    currentUser = user;
+    appBootstrapStatus.textContent = "Validando perfil...";
+
+    const { data: profile, error: profileError } = await supabase
+      .from("perfiles")
+      .select("user_id,numero_colaborador,nombre,rol,activo")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("No fue posible cargar el perfil del usuario.", profileError);
+      showFatalError("No fue posible validar el perfil.");
+      return;
+    }
+
+    if (!profile || profile.activo !== true) {
+      try {
+        await supabase.auth.signOut();
+      } catch (error) {
+        console.error("No fue posible cerrar la sesión del perfil inválido.", error);
+      }
+      redirectToLogin("Tu perfil no está activo.");
+      return;
+    }
+
+    currentProfile = profile;
+    renderCurrentUser();
+    applyPermissions();
+    revealApplication();
+    await refreshAllData();
+  } catch (error) {
+    console.error("No fue posible iniciar la aplicación.", error);
+    showFatalError("No fue posible cargar el inventario.");
+  }
+}
 
 document.getElementById("currentDate").textContent = new Intl.DateTimeFormat("es-MX", {
   day: "2-digit",
@@ -373,8 +722,10 @@ let responsiveUiFrame;
 function updateResponsiveUi() {
   responsiveUiFrame = null;
 
-  if (!responsiveLayout.matches) {
-    document.documentElement.style.removeProperty("--responsive-nav-height");
+  if (!responsiveLayout.matches || !canManageInventory) {
+    if (!responsiveLayout.matches) {
+      document.documentElement.style.removeProperty("--responsive-nav-height");
+    }
     responsiveAddAction.classList.remove("is-visible");
     responsiveAddAction.setAttribute("aria-hidden", "true");
     responsiveAddItemBtn.tabIndex = -1;
@@ -408,8 +759,4 @@ if ("ResizeObserver" in window) {
 
 renderInventory();
 renderMovements();
-updateResponsiveUi();
-
-window.editItem = editItem;
-window.deleteItem = deleteItem;
-window.adjustStock = adjustStock;
+initializeApplication();

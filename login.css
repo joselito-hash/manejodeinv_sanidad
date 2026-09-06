@@ -40,9 +40,34 @@ input {
   font: inherit;
 }
 
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+.auth-bootstrap-status {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--bg);
+  font-size: 13px;
+}
+
+.auth-bootstrap-status[hidden] {
+  display: none;
+}
+
+.auth-pending .login-card {
+  visibility: hidden;
 }
 
 .login-page {

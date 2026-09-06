@@ -1,3 +1,5 @@
+import { supabase } from "./supabaseClient.js";
+
 const slides = [...document.querySelectorAll(".slide")];
 const dots = [...document.querySelectorAll(".dot")];
 
@@ -8,6 +10,8 @@ const employeeError = document.getElementById("employeeError");
 const passwordError = document.getElementById("passwordError");
 const togglePassword = document.getElementById("togglePassword");
 const loginMessage = document.getElementById("loginMessage");
+const loginButton = document.getElementById("loginButton");
+const authBootstrapStatus = document.getElementById("authBootstrapStatus");
 
 const forgotPassword = document.getElementById("forgotPassword");
 const forgotModal = document.getElementById("forgotModal");
@@ -100,7 +104,7 @@ function validateForm() {
   return valid;
 }
 
-loginForm.addEventListener("submit", event => {
+loginForm.addEventListener("submit", async event => {
   event.preventDefault();
 
   if (!validateForm()) {
@@ -109,23 +113,43 @@ loginForm.addEventListener("submit", event => {
     return;
   }
 
-  // Front-end demo:
-  // Aquí puedes reemplazar esta lógica por una petición a tu backend.
-  loginMessage.textContent = "Acceso correcto. Redirigiendo...";
-  loginMessage.classList.add("success");
+  const employeeValue = employeeNumber.value.trim();
+  const passwordValue = password.value;
+  const email = `${employeeValue}@sanidad.local`;
 
-  if (document.getElementById("rememberMe").checked) {
-    localStorage.setItem(
-      "bimboSanidadEmployee",
-      employeeNumber.value.trim()
-    );
-  } else {
-    localStorage.removeItem("bimboSanidadEmployee");
+  loginButton.disabled = true;
+  loginButton.textContent = "Iniciando sesión...";
+
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: passwordValue
+    });
+
+    if (error) {
+      console.error("No fue posible autenticar al usuario.", error);
+      loginMessage.textContent = "Número de colaborador o contraseña incorrectos.";
+      loginMessage.classList.add("error");
+      return;
+    }
+
+    if (document.getElementById("rememberMe").checked) {
+      localStorage.setItem("bimboSanidadEmployee", employeeValue);
+    } else {
+      localStorage.removeItem("bimboSanidadEmployee");
+    }
+
+    loginMessage.textContent = "Acceso correcto. Redirigiendo...";
+    loginMessage.classList.add("success");
+    window.location.replace("/Landing/inventarios.html");
+  } catch (error) {
+    console.error("Error de conexión durante el inicio de sesión.", error);
+    loginMessage.textContent = "No fue posible iniciar sesión. Intenta de nuevo.";
+    loginMessage.classList.add("error");
+  } finally {
+    loginButton.disabled = false;
+    loginButton.textContent = "Iniciar sesión";
   }
-
-  setTimeout(() => {
-    window.location.href = "Landing/inventarios.html";
-  }, 650);
 });
 
 const rememberedEmployee = localStorage.getItem("bimboSanidadEmployee");
@@ -158,4 +182,33 @@ document.addEventListener("keydown", event => {
   }
 });
 
+function showLogin() {
+  document.body.classList.remove("auth-pending");
+  authBootstrapStatus.hidden = true;
+}
+
+async function checkExistingSession() {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+
+    if (!error && data.user) {
+      window.location.replace("/Landing/inventarios.html");
+      return;
+    }
+
+    if (error && error.name !== "AuthSessionMissingError") {
+      console.error("No fue posible verificar la sesión actual.", error);
+      loginMessage.textContent = "No fue posible verificar la sesión. Puedes intentar iniciar sesión.";
+      loginMessage.classList.add("error");
+    }
+  } catch (error) {
+    console.error("Error de conexión al verificar la sesión.", error);
+    loginMessage.textContent = "No fue posible verificar la sesión. Puedes intentar iniciar sesión.";
+    loginMessage.classList.add("error");
+  }
+
+  showLogin();
+}
+
 startCarousel();
+checkExistingSession();

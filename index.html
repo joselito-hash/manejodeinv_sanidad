@@ -11,7 +11,11 @@
   <link rel="stylesheet" href="login.css" />
 </head>
 
-<body>
+<body class="auth-pending">
+  <div id="authBootstrapStatus" class="auth-bootstrap-status" role="status">
+    Verificando sesión...
+  </div>
+
   <main class="login-page">
     <section class="login-card">
 
@@ -128,7 +132,7 @@
               </a>
             </div>
 
-            <button class="login-button" type="submit">
+            <button id="loginButton" class="login-button" type="submit">
               Iniciar sesión
             </button>
 
@@ -162,6 +166,6 @@
     </div>
   </div>
 
-  <script src="login.js"></script>
+  <script type="module" src="login.js"></script>
 </body>
 </html>
