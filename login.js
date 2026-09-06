@@ -248,7 +248,10 @@ document.addEventListener("keydown", event => {
 
 function showLogin() {
   document.body.classList.remove("auth-pending");
-  authBootstrapStatus.hidden = true;
+  authBootstrapStatus.classList.add("is-leaving");
+  setTimeout(() => {
+    authBootstrapStatus.hidden = true;
+  }, 520);
 }
 
 async function checkExistingSession() {

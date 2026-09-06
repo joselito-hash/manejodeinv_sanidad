@@ -60,14 +60,26 @@ a {
   color: var(--muted);
   background: var(--bg);
   font-size: 13px;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 500ms ease,
+    visibility 0s linear 500ms;
+}
+
+.auth-bootstrap-status.is-leaving {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .auth-bootstrap-status[hidden] {
   display: none;
 }
 
-.auth-pending .login-card {
-  visibility: hidden;
+.auth-pending .login-page {
+  opacity: 0;
+  transform: translateY(10px) scale(0.992);
+  pointer-events: none;
 }
 
 .welcome-transition {
@@ -779,6 +791,7 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
   .login-page,
+  .auth-bootstrap-status,
   .welcome-transition,
   .welcome-transition::before,
   .welcome-transition::after {

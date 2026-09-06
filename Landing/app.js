@@ -624,7 +624,10 @@ function renderCurrentUser() {
 
 function revealApplication() {
   document.body.classList.remove("app-auth-pending");
-  appBootstrapStatus.hidden = true;
+  appBootstrapStatus.classList.add("is-leaving");
+  setTimeout(() => {
+    appBootstrapStatus.hidden = true;
+  }, 520);
   queueResponsiveUiUpdate();
 }
 
@@ -704,7 +707,7 @@ supabase.auth.onAuthStateChange(event => {
 });
 
 async function initializeApplication() {
-  appBootstrapStatus.textContent = "Verificando sesión...";
+  appBootstrapStatus.setAttribute("aria-label", "Verificando sesión");
 
   try {
     const { data: userData, error: userError } = await supabase.auth.getUser();
@@ -719,7 +722,7 @@ async function initializeApplication() {
     }
 
     currentUser = user;
-    appBootstrapStatus.textContent = "Validando perfil...";
+    appBootstrapStatus.setAttribute("aria-label", "Validando perfil");
 
     const { data: profile, error: profileError } = await supabase
       .from("perfiles")
@@ -746,8 +749,8 @@ async function initializeApplication() {
     currentProfile = profile;
     renderCurrentUser();
     applyPermissions();
-    revealApplication();
     await refreshAllData();
+    revealApplication();
   } catch (error) {
     console.error("No fue posible iniciar la aplicación.", error);
     showFatalError("No fue posible cargar el inventario.");

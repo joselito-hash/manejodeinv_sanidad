@@ -45,6 +45,16 @@ body {
   color: var(--muted);
   background: var(--bg);
   font-size: 13px;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 500ms ease,
+    visibility 0s linear 500ms;
+}
+
+.app-bootstrap-status.is-leaving {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .app-bootstrap-status.error {
@@ -56,7 +66,9 @@ body {
 }
 
 .app-auth-pending .app-shell {
-  visibility: hidden;
+  opacity: 0;
+  transform: translateY(10px) scale(0.992);
+  pointer-events: none;
 }
 
 .logout-transition {
@@ -1015,6 +1027,7 @@ tr:hover td {
   }
 
   .app-shell,
+  .app-bootstrap-status,
   .logout-transition,
   .logout-transition::before,
   .logout-transition::after {
