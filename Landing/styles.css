@@ -721,12 +721,23 @@ tr:hover td {
 
 .user-self-label {
   display: inline-block;
-  margin-left: 7px;
+  margin: 0;
+  padding: 4px 7px;
+  border-radius: 999px;
   color: var(--blue-dark);
+  background: var(--blue-soft);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.05em;
+  line-height: 1;
   text-transform: uppercase;
+}
+
+.user-name-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
 .permission-hidden {
@@ -1051,6 +1062,74 @@ tr:hover td {
   .users-table .row-actions { grid-template-columns: repeat(2,1fr); }
   .row-btn { min-height: 38px; background: #f5f1ea; }
   .badge { justify-self: end; }
+
+  .inventory-table tr,
+  .users-table tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3px;
+    padding: 11px;
+  }
+
+  .inventory-table td,
+  .users-table td {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 5px;
+    padding: 8px 9px;
+    border: 0;
+    text-align: left;
+  }
+
+  .inventory-table td::before,
+  .users-table td::before {
+    font-size: 9px;
+    line-height: 1;
+  }
+
+  .inventory-table td:nth-child(9),
+  .users-table td:nth-child(5) {
+    display: block;
+    grid-column: 1 / -1;
+    margin-top: 5px;
+    padding: 10px 0 0;
+    border-top: 1px solid #ece6dc;
+  }
+
+  .inventory-table td:nth-child(9)::before,
+  .users-table td:nth-child(5)::before {
+    display: none;
+  }
+
+  .inventory-table td[colspan],
+  .users-table td[colspan] {
+    display: block;
+    grid-column: 1 / -1;
+    padding: 8px;
+  }
+
+  .inventory-table .row-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .users-table .row-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-table .badge,
+  .users-table .badge {
+    justify-self: auto;
+  }
+
+  .user-name-cell {
+    align-items: flex-start;
+    gap: 5px;
+  }
+
   .panel-footer { align-items: flex-start; flex-direction: column; padding: 14px 16px; }
   .movement-item { grid-template-columns: 1fr; }
   .movement-type { justify-self: start; }
@@ -1074,6 +1153,9 @@ tr:hover td {
   .table-wrapper { padding: 8px; }
   td { grid-template-columns: 96px minmax(0,1fr); gap: 8px; padding: 10px; font-size: 12px; }
   .row-actions { grid-template-columns: repeat(2,1fr); }
+  .inventory-table .row-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inventory-table tr, .users-table tr { padding: 9px; }
+  .inventory-table td, .users-table td { padding: 7px; }
   .row-btn { min-height: 40px; }
   .form-actions { grid-template-columns: 1fr; }
   .panel-header h2 { font-size: 18px; }

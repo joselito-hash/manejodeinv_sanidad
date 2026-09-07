@@ -92,6 +92,8 @@ const itemForm = document.getElementById("itemForm");
 const addItemBtn = document.getElementById("addItemBtn");
 const responsiveAddAction = document.getElementById("responsiveAddAction");
 const responsiveAddItemBtn = document.getElementById("responsiveAddItemBtn");
+const responsiveUserAddAction = document.getElementById("responsiveUserAddAction");
+const responsiveAddUserBtn = document.getElementById("responsiveAddUserBtn");
 const sidebar = document.querySelector(".sidebar");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const cancelBtn = document.getElementById("cancelBtn");
@@ -160,6 +162,15 @@ function escapeHTML(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function normalizePersonName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
 function mapProduct(row) {
@@ -414,8 +425,10 @@ function renderUsers() {
           <tr>
             <td data-label="Colaborador">${escapeHTML(user.numero_colaborador)}</td>
             <td data-label="Nombre">
-              <span class="item-name">${escapeHTML(user.nombre)}</span>
-              ${isCurrentUser ? '<span class="user-self-label">Tu cuenta</span>' : ""}
+              <div class="user-name-cell">
+                <span class="item-name">${escapeHTML(user.nombre)}</span>
+                ${isCurrentUser ? '<span class="user-self-label">Tu cuenta</span>' : ""}
+              </div>
             </td>
             <td data-label="Rol">${escapeHTML(formatRole(user.rol))}</td>
             <td data-label="Estado"><span class="badge ${statusClass}">${statusLabel}</span></td>
@@ -909,6 +922,21 @@ userForm.addEventListener("submit", async event => {
     return;
   }
 
+  const editedUser = users.find(user => user.user_id === userId);
+  const nameChanged = !editedUser
+    || normalizePersonName(editedUser.nombre) !== normalizePersonName(fullName);
+  const duplicatePerson = nameChanged
+    ? users.find(user => (
+        user.user_id !== userId
+        && normalizePersonName(user.nombre) === normalizePersonName(fullName)
+      ))
+    : null;
+
+  if (duplicatePerson) {
+    showToast("Ya existe un usuario registrado con ese nombre.");
+    return;
+  }
+
   if ((!userId || password) && password.length < 6) {
     showToast("La contraseña debe tener al menos 6 caracteres.");
     return;
@@ -974,6 +1002,7 @@ responsiveAddItemBtn.addEventListener("click", () => openModal());
 closeModalBtn.addEventListener("click", closeModal);
 cancelBtn.addEventListener("click", closeModal);
 addUserBtn.addEventListener("click", () => openUserModal());
+responsiveAddUserBtn.addEventListener("click", () => openUserModal());
 closeUserModalBtn.addEventListener("click", closeUserModal);
 cancelUserBtn.addEventListener("click", closeUserModal);
 userSearchInput.addEventListener("input", renderUsers);
@@ -1044,9 +1073,15 @@ function formatRole(role) {
 
 function updateContextualActions(view) {
   const showProductAdd = currentPermissions.addProducts && view !== "usuarios";
+  const showUserAdd = currentPermissions.manageUsers && view === "usuarios";
+
   addItemBtn.classList.toggle("permission-hidden", !showProductAdd);
   responsiveAddAction.classList.toggle("permission-hidden", !showProductAdd);
   responsiveAddItemBtn.disabled = !showProductAdd;
+
+  addUserBtn.classList.toggle("permission-hidden", !showUserAdd);
+  responsiveUserAddAction.classList.toggle("permission-hidden", !showUserAdd);
+  responsiveAddUserBtn.disabled = !showUserAdd;
   queueResponsiveUiUpdate();
 }
 
@@ -1220,30 +1255,36 @@ let responsiveUiFrame;
 function updateResponsiveUi() {
   responsiveUiFrame = null;
 
-  if (
-    !responsiveLayout.matches
-    || !currentPermissions.addProducts
-    || responsiveAddAction.classList.contains("permission-hidden")
-  ) {
-    if (!responsiveLayout.matches) {
-      document.documentElement.style.removeProperty("--responsive-nav-height");
-    }
-    responsiveAddAction.classList.remove("is-visible");
-    responsiveAddAction.setAttribute("aria-hidden", "true");
-    responsiveAddItemBtn.tabIndex = -1;
+  responsiveAddAction.classList.remove("is-visible");
+  responsiveAddAction.setAttribute("aria-hidden", "true");
+  responsiveAddItemBtn.tabIndex = -1;
+  responsiveUserAddAction.classList.remove("is-visible");
+  responsiveUserAddAction.setAttribute("aria-hidden", "true");
+  responsiveAddUserBtn.tabIndex = -1;
+
+  if (!responsiveLayout.matches) {
+    document.documentElement.style.removeProperty("--responsive-nav-height");
     return;
   }
 
   const navHeight = Math.ceil(sidebar.getBoundingClientRect().height);
   document.documentElement.style.setProperty("--responsive-nav-height", `${navHeight}px`);
-
-  const originalButtonBottom = addItemBtn.getBoundingClientRect().bottom;
   const navBottom = sidebar.getBoundingClientRect().bottom;
-  const shouldShow = originalButtonBottom <= navBottom;
+  const activeView = document.querySelector(".nav-item.active")?.dataset.view || "inventario";
+  const isUsersView = activeView === "usuarios";
+  const triggerButton = isUsersView ? addUserBtn : addItemBtn;
+  const floatingAction = isUsersView ? responsiveUserAddAction : responsiveAddAction;
+  const floatingButton = isUsersView ? responsiveAddUserBtn : responsiveAddItemBtn;
+  const allowed = isUsersView
+    ? currentPermissions.manageUsers
+    : currentPermissions.addProducts;
 
-  responsiveAddAction.classList.toggle("is-visible", shouldShow);
-  responsiveAddAction.setAttribute("aria-hidden", String(!shouldShow));
-  responsiveAddItemBtn.tabIndex = shouldShow ? 0 : -1;
+  if (!allowed || floatingAction.classList.contains("permission-hidden")) return;
+
+  const shouldShow = triggerButton.getBoundingClientRect().bottom <= navBottom;
+  floatingAction.classList.toggle("is-visible", shouldShow);
+  floatingAction.setAttribute("aria-hidden", String(!shouldShow));
+  floatingButton.tabIndex = shouldShow ? 0 : -1;
 }
 
 function queueResponsiveUiUpdate() {
