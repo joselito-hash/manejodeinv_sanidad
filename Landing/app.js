@@ -72,7 +72,9 @@ let movementsState = "loading";
 let usersState = "idle";
 let authRedirecting = false;
 let logoutTransitionStarted = false;
+let notificationsOpen = false;
 const pendingStockOperations = new Set();
+const readNotificationIds = new Set();
 
 const inventoryBody = document.getElementById("inventoryBody");
 const searchInput = document.getElementById("searchInput");
@@ -135,6 +137,13 @@ const confirmationConfirmBtn = document.getElementById("confirmationConfirmBtn")
 const currentUserName = document.getElementById("currentUserName");
 const currentUserNumber = document.getElementById("currentUserNumber");
 const currentUserRole = document.getElementById("currentUserRole");
+const notificationsBtn = document.getElementById("notificationsBtn");
+const notificationsBadge = document.getElementById("notificationsBadge");
+const notificationsPanel = document.getElementById("notificationsPanel");
+const notificationsSummary = document.getElementById("notificationsSummary");
+const notificationsList = document.getElementById("notificationsList");
+const markNotificationsReadBtn = document.getElementById("markNotificationsReadBtn");
+const viewAlertsBtn = document.getElementById("viewAlertsBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const appBootstrapStatus = document.getElementById("appBootstrapStatus");
 const logoutTransition = document.getElementById("logoutTransition");
@@ -375,8 +384,115 @@ function updateStats() {
   }
 }
 
+function getInventoryNotifications() {
+  return inventory
+    .filter(item => getStatus(item) !== "ok")
+    .sort((first, second) => {
+      const severity = { out: 0, low: 1 };
+      return severity[getStatus(first)] - severity[getStatus(second)]
+        || Number(first.stock) - Number(second.stock);
+    })
+    .map(item => {
+      const status = getStatus(item);
+      const stockText = `${formatNumber(item.stock)} ${item.unit}`.trim();
+      const minimumText = `${formatNumber(item.minStock)} ${item.unit}`.trim();
+
+      return {
+        id: `stock-${item.id}-${status}`,
+        status,
+        title: status === "out" ? "Sin existencia" : "Stock bajo",
+        product: item.name,
+        detail: status === "out"
+          ? `Reposición prioritaria · mínimo ${minimumText}`
+          : `${stockText} disponibles · mínimo ${minimumText}`
+      };
+    });
+}
+
+function renderNotificationCenter() {
+  if (inventoryState === "loading" && inventory.length === 0) {
+    notificationsBadge.hidden = true;
+    notificationsSummary.textContent = "Actualizando inventario";
+    notificationsList.innerHTML = '<div class="notification-empty">Cargando notificaciones...</div>';
+    markNotificationsReadBtn.disabled = true;
+    return;
+  }
+
+  if (inventoryState === "error") {
+    notificationsBadge.hidden = true;
+    notificationsSummary.textContent = "No disponible";
+    notificationsList.innerHTML = '<div class="notification-empty error">No fue posible revisar las alertas.</div>';
+    markNotificationsReadBtn.disabled = true;
+    return;
+  }
+
+  const notifications = getInventoryNotifications();
+  const unreadCount = notifications.filter(item => !readNotificationIds.has(item.id)).length;
+
+  notificationsBadge.hidden = unreadCount === 0;
+  notificationsBadge.textContent = unreadCount > 9 ? "9+" : String(unreadCount);
+  notificationsBtn.setAttribute(
+    "aria-label",
+    unreadCount
+      ? `Abrir centro de notificaciones, ${unreadCount} sin leer`
+      : "Abrir centro de notificaciones"
+  );
+  markNotificationsReadBtn.disabled = unreadCount === 0;
+  notificationsSummary.textContent = notifications.length === 0
+    ? "Sin pendientes"
+    : unreadCount === 0
+      ? `${notifications.length} ${notifications.length === 1 ? "alerta revisada" : "alertas revisadas"}`
+      : `${unreadCount} ${unreadCount === 1 ? "pendiente" : "pendientes"}`;
+
+  notificationsList.innerHTML = notifications.length
+    ? notifications.map(notification => {
+        const isRead = readNotificationIds.has(notification.id);
+        return `
+          <button
+            type="button"
+            class="notification-item ${notification.status}${isRead ? " is-read" : ""}"
+            data-notification-id="${escapeHTML(notification.id)}"
+          >
+            <span class="notification-status-dot" aria-hidden="true"></span>
+            <span class="notification-copy">
+              <span class="notification-item-heading">
+                <strong>${escapeHTML(notification.title)}</strong>
+                ${isRead ? '<span class="notification-read-label">Leída</span>' : ""}
+              </span>
+              <span class="notification-product">${escapeHTML(notification.product)}</span>
+              <span class="notification-detail">${escapeHTML(notification.detail)}</span>
+            </span>
+          </button>
+        `;
+      }).join("")
+    : `
+        <div class="notification-empty is-clear">
+          <span aria-hidden="true">✓</span>
+          <strong>Todo en orden</strong>
+          <p>No hay productos con faltantes o stock bajo.</p>
+        </div>
+      `;
+}
+
+function setNotificationsOpen(open, returnFocus = false) {
+  notificationsOpen = open;
+  notificationsPanel.classList.toggle("is-open", open);
+  notificationsPanel.setAttribute("aria-hidden", String(!open));
+  notificationsBtn.setAttribute("aria-expanded", String(open));
+  if (!open && returnFocus) notificationsBtn.focus();
+}
+
+function openAlertsFromNotifications() {
+  setNotificationsOpen(false);
+  document.querySelector('.nav-item[data-view="alertas"]')?.click();
+  requestAnimationFrame(() => {
+    document.getElementById("alertasView")?.scrollIntoView({ block: "start" });
+  });
+}
+
 function renderInventory() {
   updateStats();
+  renderNotificationCenter();
 
   if (inventoryState === "loading") {
     inventoryBody.innerHTML = stateRow("Cargando inventario...");
@@ -1200,6 +1316,22 @@ closeStockOperationBtn.addEventListener("click", closeStockOperation);
 cancelStockOperationBtn.addEventListener("click", closeStockOperation);
 confirmationCancelBtn.addEventListener("click", () => resolveConfirmation(false));
 confirmationConfirmBtn.addEventListener("click", () => resolveConfirmation(true));
+notificationsBtn.addEventListener("click", event => {
+  event.stopPropagation();
+  setNotificationsOpen(!notificationsOpen);
+});
+markNotificationsReadBtn.addEventListener("click", () => {
+  getInventoryNotifications().forEach(notification => readNotificationIds.add(notification.id));
+  renderNotificationCenter();
+});
+notificationsList.addEventListener("click", event => {
+  const notification = event.target.closest("[data-notification-id]");
+  if (!notification) return;
+  readNotificationIds.add(notification.dataset.notificationId);
+  renderNotificationCenter();
+  openAlertsFromNotifications();
+});
+viewAlertsBtn.addEventListener("click", openAlertsFromNotifications);
 addUserBtn.addEventListener("click", () => openUserModal());
 responsiveAddUserBtn.addEventListener("click", () => openUserModal());
 closeUserModalBtn.addEventListener("click", closeUserModal);
@@ -1230,11 +1362,18 @@ confirmationBackdrop.addEventListener("click", event => {
   if (event.target === confirmationBackdrop) resolveConfirmation(false);
 });
 
+document.addEventListener("click", event => {
+  if (notificationsOpen && !event.target.closest(".notification-center")) {
+    setNotificationsOpen(false);
+  }
+});
+
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !modalBackdrop.hidden) closeModal();
   if (event.key === "Escape" && !userModalBackdrop.hidden) closeUserModal();
   if (event.key === "Escape" && !stockOperationPanel.hidden) closeStockOperation();
   if (event.key === "Escape" && !confirmationBackdrop.hidden) resolveConfirmation(false);
+  if (event.key === "Escape" && notificationsOpen) setNotificationsOpen(false, true);
 });
 
 searchInput.addEventListener("input", renderInventory);

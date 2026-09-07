@@ -85,9 +85,49 @@
               <span id="currentUserNumber">Colaborador —</span>
               <span id="currentUserRole">—</span>
             </div>
-            <button id="logoutBtn" class="text-btn logout-btn" type="button">
-              Cerrar sesión
-            </button>
+
+            <div class="session-controls">
+              <div class="notification-center">
+                <button
+                  id="notificationsBtn"
+                  class="notification-trigger"
+                  type="button"
+                  aria-expanded="false"
+                  aria-controls="notificationsPanel"
+                  aria-label="Abrir centro de notificaciones"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+                    <path d="M10 21h4" />
+                  </svg>
+                  <span id="notificationsBadge" class="notification-badge" hidden>0</span>
+                </button>
+
+                <section id="notificationsPanel" class="notification-panel" aria-hidden="true" aria-labelledby="notificationsTitle">
+                  <div class="notification-panel-header">
+                    <div>
+                      <p class="eyebrow">SEGUIMIENTO</p>
+                      <h2 id="notificationsTitle">Notificaciones</h2>
+                      <span id="notificationsSummary">Sin pendientes</span>
+                    </div>
+                    <button id="markNotificationsReadBtn" class="text-btn" type="button">
+                      Marcar como leídas
+                    </button>
+                  </div>
+
+                  <div id="notificationsList" class="notification-list" aria-live="polite"></div>
+
+                  <button id="viewAlertsBtn" class="notification-footer-btn" type="button">
+                    Ver todas las alertas
+                    <span aria-hidden="true">→</span>
+                  </button>
+                </section>
+              </div>
+
+              <button id="logoutBtn" class="text-btn logout-btn" type="button">
+                Cerrar sesión
+              </button>
+            </div>
           </div>
 
           <div class="topbar-action-row">
