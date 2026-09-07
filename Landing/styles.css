@@ -544,6 +544,10 @@ h2 {
   overflow: hidden;
 }
 
+.inventory-panel {
+  overflow: visible;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -626,10 +630,24 @@ h2 {
 }
 
 .filter-chevron {
-  color: var(--blue-dark);
-  font-size: 17px;
-  line-height: 1;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
   transition: transform 160ms ease;
+}
+
+.filter-chevron svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  overflow: visible;
+  fill: none;
+  stroke: var(--blue-dark);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .filter-select.is-open .filter-chevron {
@@ -649,17 +667,30 @@ h2 {
   border-radius: 13px;
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 18px 40px rgba(39, 51, 59, 0.16);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-7px) scale(0.985);
+  transform-origin: center top;
+  pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 190ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    visibility 0s linear 190ms;
 }
 
-.filter-select-menu[hidden] {
-  display: none;
+.filter-select.is-open .filter-select-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+  transition-delay: 0s;
 }
 
 .filter-select-menu button {
   position: relative;
   width: 100%;
   min-height: 36px;
-  padding: 8px 30px 8px 10px;
+  padding: 8px 10px;
   border: 0;
   border-radius: 9px;
   color: var(--text);
@@ -678,14 +709,6 @@ h2 {
   color: var(--blue-dark);
   background: rgba(220, 231, 237, 0.7);
   font-weight: 600;
-}
-
-.filter-select-menu button[aria-selected="true"]::after {
-  content: "✓";
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
 }
 
 .select-control,
@@ -909,7 +932,7 @@ tr:hover td {
   display: grid;
   grid-template-columns: minmax(150px, 0.55fr) minmax(260px, 1fr);
   gap: 12px;
-  align-items: end;
+  align-items: start;
 }
 
 .stock-operation-form label {
@@ -948,17 +971,24 @@ tr:hover td {
 
 .stock-operation-product {
   grid-column: 1 / -1;
-  min-height: 64px;
+  min-height: 78px;
   display: grid;
   align-content: center;
-  gap: 5px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.52);
+  gap: 7px;
+  padding: 14px 16px;
+  border: 1px solid rgba(111, 143, 164, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .stock-operation-product strong {
-  font-size: 15px;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.stock-operation-product span {
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .stock-operation-actions {
@@ -1461,7 +1491,8 @@ tr:hover td {
   }
   .stock-operation-card { padding: 20px; }
   .stock-operation-form { grid-template-columns: minmax(0, 0.7fr) minmax(0, 1fr); }
-  .stock-operation-product { min-height: 58px; }
+  .stock-operation-product { min-height: 72px; }
+  .stock-operation-product strong { font-size: 18px; }
   .stock-operation-form input,
   .stock-operation-form textarea { min-height: 46px; font-size: 16px; }
   .stock-operation-actions .primary-btn,

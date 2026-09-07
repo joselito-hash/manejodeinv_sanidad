@@ -127,7 +127,7 @@
           </article>
         </div>
 
-        <section class="panel">
+        <section class="panel inventory-panel">
           <div class="panel-header">
             <div>
               <p class="eyebrow">EXISTENCIAS</p>
@@ -144,9 +144,13 @@
                 <input id="categoryFilter" type="hidden" value="all" />
                 <button class="filter-select-trigger" type="button" aria-expanded="false" aria-controls="categoryFilterMenu">
                   <span data-filter-label>Todas las categorías</span>
-                  <span class="filter-chevron" aria-hidden="true">⌄</span>
+                  <span class="filter-chevron" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" focusable="false">
+                      <path d="M3.5 6 8 10.5 12.5 6" />
+                    </svg>
+                  </span>
                 </button>
-                <div id="categoryFilterMenu" class="filter-select-menu" role="listbox" hidden>
+                <div id="categoryFilterMenu" class="filter-select-menu" role="listbox" aria-hidden="true">
                   <button type="button" role="option" data-filter-value="all" aria-selected="true">Todas las categorías</button>
                   <button type="button" role="option" data-filter-value="Químicos" aria-selected="false">Químicos</button>
                   <button type="button" role="option" data-filter-value="Limpieza" aria-selected="false">Limpieza</button>
@@ -159,9 +163,13 @@
                 <input id="statusFilter" type="hidden" value="all" />
                 <button class="filter-select-trigger" type="button" aria-expanded="false" aria-controls="statusFilterMenu">
                   <span data-filter-label>Todos los estados</span>
-                  <span class="filter-chevron" aria-hidden="true">⌄</span>
+                  <span class="filter-chevron" aria-hidden="true">
+                    <svg viewBox="0 0 16 16" focusable="false">
+                      <path d="M3.5 6 8 10.5 12.5 6" />
+                    </svg>
+                  </span>
                 </button>
-                <div id="statusFilterMenu" class="filter-select-menu" role="listbox" hidden>
+                <div id="statusFilterMenu" class="filter-select-menu" role="listbox" aria-hidden="true">
                   <button type="button" role="option" data-filter-value="all" aria-selected="true">Todos los estados</button>
                   <button type="button" role="option" data-filter-value="ok" aria-selected="false">Stock suficiente</button>
                   <button type="button" role="option" data-filter-value="low" aria-selected="false">Stock bajo</button>

@@ -262,7 +262,10 @@ function setFilterMenuOpen(control, open) {
   const menu = control.querySelector(".filter-select-menu");
   control.classList.toggle("is-open", open);
   trigger.setAttribute("aria-expanded", String(open));
-  menu.hidden = !open;
+  menu.setAttribute("aria-hidden", String(!open));
+  menu.querySelectorAll("button").forEach(option => {
+    option.tabIndex = open ? 0 : -1;
+  });
 }
 
 function closeFilterMenus(except = null) {
@@ -276,6 +279,7 @@ document.querySelectorAll("[data-filter-select]").forEach(control => {
   const trigger = control.querySelector(".filter-select-trigger");
   const label = control.querySelector("[data-filter-label]");
   const options = [...control.querySelectorAll("[data-filter-value]")];
+  setFilterMenuOpen(control, false);
 
   trigger.addEventListener("click", event => {
     event.stopPropagation();
