@@ -104,6 +104,7 @@ const responsiveAddItemBtn = document.getElementById("responsiveAddItemBtn");
 const responsiveUserAddAction = document.getElementById("responsiveUserAddAction");
 const responsiveAddUserBtn = document.getElementById("responsiveAddUserBtn");
 const sidebar = document.querySelector(".sidebar");
+const sessionCard = document.querySelector(".session-card");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const cancelBtn = document.getElementById("cancelBtn");
 const modalTitle = document.getElementById("modalTitle");
@@ -476,6 +477,7 @@ function renderNotificationCenter() {
 
 function setNotificationsOpen(open, returnFocus = false) {
   notificationsOpen = open;
+  if (open) updateNotificationPanelPosition();
   notificationsPanel.classList.toggle("is-open", open);
   notificationsPanel.setAttribute("aria-hidden", String(!open));
   notificationsBtn.setAttribute("aria-expanded", String(open));
@@ -1605,6 +1607,31 @@ document.getElementById("currentDate").textContent = new Intl.DateTimeFormat("es
 const responsiveLayout = window.matchMedia("(max-width: 980px)");
 let responsiveUiFrame;
 
+function updateNotificationPanelPosition() {
+  if (!responsiveLayout.matches) {
+    notificationsPanel.style.removeProperty("top");
+    notificationsPanel.style.removeProperty("right");
+    notificationsPanel.style.removeProperty("left");
+    notificationsPanel.style.removeProperty("width");
+    return;
+  }
+
+  const sessionRect = sessionCard.getBoundingClientRect();
+  const navBottom = sidebar.getBoundingClientRect().bottom;
+  const viewportPadding = window.innerWidth <= 760 ? 14 : 24;
+  const left = Math.max(viewportPadding, sessionRect.left);
+  const width = Math.min(
+    sessionRect.width,
+    window.innerWidth - left - viewportPadding
+  );
+  const top = Math.max(sessionRect.bottom + 12, navBottom + 12);
+
+  notificationsPanel.style.top = `${Math.round(top)}px`;
+  notificationsPanel.style.right = "auto";
+  notificationsPanel.style.left = `${Math.round(left)}px`;
+  notificationsPanel.style.width = `${Math.round(width)}px`;
+}
+
 function updateResponsiveUi() {
   responsiveUiFrame = null;
 
@@ -1617,12 +1644,14 @@ function updateResponsiveUi() {
   if (!responsiveLayout.matches) {
     setActionVisibility(responsiveAddAction, responsiveAddItemBtn, false);
     setActionVisibility(responsiveUserAddAction, responsiveAddUserBtn, false);
+    updateNotificationPanelPosition();
     document.documentElement.style.removeProperty("--responsive-nav-height");
     return;
   }
 
   const navHeight = Math.ceil(sidebar.getBoundingClientRect().height);
   document.documentElement.style.setProperty("--responsive-nav-height", `${navHeight}px`);
+  if (notificationsOpen) updateNotificationPanelPosition();
   const navBottom = sidebar.getBoundingClientRect().bottom;
   const activeView = document.querySelector(".nav-item.active")?.dataset.view || "inventario";
   const isUsersView = activeView === "usuarios";
