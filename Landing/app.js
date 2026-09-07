@@ -107,8 +107,8 @@ const cancelBtn = document.getElementById("cancelBtn");
 const modalTitle = document.getElementById("modalTitle");
 const refreshDataBtn = document.getElementById("refreshDataBtn");
 const saveItemBtn = document.getElementById("saveItemBtn");
+const stockField = document.getElementById("stockField");
 const stockInput = document.getElementById("stock");
-const stockEditHelp = document.getElementById("stockEditHelp");
 const toast = document.getElementById("toast");
 
 const stockOperationPanel = document.getElementById("stockOperationPanel");
@@ -256,6 +256,68 @@ function stateRow(message, isError = false) {
     </tr>
   `;
 }
+
+function setFilterMenuOpen(control, open) {
+  const trigger = control.querySelector(".filter-select-trigger");
+  const menu = control.querySelector(".filter-select-menu");
+  control.classList.toggle("is-open", open);
+  trigger.setAttribute("aria-expanded", String(open));
+  menu.hidden = !open;
+}
+
+function closeFilterMenus(except = null) {
+  document.querySelectorAll("[data-filter-select]").forEach(control => {
+    if (control !== except) setFilterMenuOpen(control, false);
+  });
+}
+
+document.querySelectorAll("[data-filter-select]").forEach(control => {
+  const input = control.querySelector('input[type="hidden"]');
+  const trigger = control.querySelector(".filter-select-trigger");
+  const label = control.querySelector("[data-filter-label]");
+  const options = [...control.querySelectorAll("[data-filter-value]")];
+
+  trigger.addEventListener("click", event => {
+    event.stopPropagation();
+    const willOpen = !control.classList.contains("is-open");
+    closeFilterMenus(control);
+    setFilterMenuOpen(control, willOpen);
+    if (willOpen) {
+      (options.find(option => option.getAttribute("aria-selected") === "true") || options[0])?.focus();
+    }
+  });
+
+  options.forEach(option => {
+    option.addEventListener("click", () => {
+      input.value = option.dataset.filterValue;
+      label.textContent = option.textContent.trim();
+      options.forEach(item => {
+        item.setAttribute("aria-selected", String(item === option));
+      });
+      setFilterMenuOpen(control, false);
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      trigger.focus();
+    });
+  });
+
+  control.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      setFilterMenuOpen(control, false);
+      trigger.focus();
+      return;
+    }
+
+    if (!control.classList.contains("is-open") || !["ArrowDown", "ArrowUp"].includes(event.key)) return;
+    event.preventDefault();
+    const currentIndex = Math.max(options.indexOf(document.activeElement), 0);
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    options[(currentIndex + direction + options.length) % options.length]?.focus();
+  });
+});
+
+document.addEventListener("click", event => {
+  if (!event.target.closest("[data-filter-select]")) closeFilterMenus();
+});
 
 function renderProductActions(item) {
   const id = escapeHTML(item.id);
@@ -706,15 +768,15 @@ function openModal(item = null) {
   itemForm.reset();
   document.getElementById("itemId").value = "";
   modalTitle.textContent = item ? "Editar insumo" : "Nuevo insumo";
+  stockField.hidden = Boolean(item);
   stockInput.disabled = Boolean(item);
-  stockEditHelp.hidden = !item;
+  stockInput.required = !item;
 
   if (item) {
     document.getElementById("itemId").value = item.id;
     document.getElementById("code").value = item.code;
     document.getElementById("name").value = item.name;
     document.getElementById("category").value = item.category;
-    stockInput.value = item.stock;
     document.getElementById("minStock").value = item.minStock;
     document.getElementById("unit").value = item.unit;
     document.getElementById("cost").value = item.cost;
@@ -1215,7 +1277,9 @@ function formatRole(role) {
 }
 
 function updateContextualActions(view) {
-  const showProductAdd = currentPermissions.addProducts && view !== "usuarios";
+  const showProductAdd = currentPermissions.addProducts
+    && view !== "usuarios"
+    && view !== "movimientos";
   const showUserAdd = currentPermissions.manageUsers && view === "usuarios";
 
   addItemBtn.classList.toggle("permission-hidden", !showProductAdd);

@@ -137,23 +137,37 @@
             <div class="toolbar">
               <label class="search-box">
                 <span>⌕</span>
-                <input id="searchInput" type="search" placeholder="Buscar insumo, código o área..." />
+                <input id="searchInput" type="search" placeholder="Buscar insumo, código o categoría..." />
               </label>
 
-              <select id="categoryFilter" class="select-control">
-                <option value="all">Todas las categorías</option>
-                <option value="Químicos">Químicos</option>
-                <option value="Limpieza">Limpieza</option>
-                <option value="Protección">Protección</option>
-                <option value="Consumibles">Consumibles</option>
-              </select>
+              <div class="filter-select" data-filter-select>
+                <input id="categoryFilter" type="hidden" value="all" />
+                <button class="filter-select-trigger" type="button" aria-expanded="false" aria-controls="categoryFilterMenu">
+                  <span data-filter-label>Todas las categorías</span>
+                  <span class="filter-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="categoryFilterMenu" class="filter-select-menu" role="listbox" hidden>
+                  <button type="button" role="option" data-filter-value="all" aria-selected="true">Todas las categorías</button>
+                  <button type="button" role="option" data-filter-value="Químicos" aria-selected="false">Químicos</button>
+                  <button type="button" role="option" data-filter-value="Limpieza" aria-selected="false">Limpieza</button>
+                  <button type="button" role="option" data-filter-value="Protección" aria-selected="false">Protección</button>
+                  <button type="button" role="option" data-filter-value="Consumibles" aria-selected="false">Consumibles</button>
+                </div>
+              </div>
 
-              <select id="statusFilter" class="select-control">
-                <option value="all">Todos los estados</option>
-                <option value="ok">Stock suficiente</option>
-                <option value="low">Stock bajo</option>
-                <option value="out">Sin existencia</option>
-              </select>
+              <div class="filter-select" data-filter-select>
+                <input id="statusFilter" type="hidden" value="all" />
+                <button class="filter-select-trigger" type="button" aria-expanded="false" aria-controls="statusFilterMenu">
+                  <span data-filter-label>Todos los estados</span>
+                  <span class="filter-chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="statusFilterMenu" class="filter-select-menu" role="listbox" hidden>
+                  <button type="button" role="option" data-filter-value="all" aria-selected="true">Todos los estados</button>
+                  <button type="button" role="option" data-filter-value="ok" aria-selected="false">Stock suficiente</button>
+                  <button type="button" role="option" data-filter-value="low" aria-selected="false">Stock bajo</button>
+                  <button type="button" role="option" data-filter-value="out" aria-selected="false">Sin existencia</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -331,12 +345,9 @@
           </select>
         </label>
 
-        <label>
+        <label id="stockField">
           <span>Existencia</span>
           <input id="stock" required type="number" min="0" step="0.01" />
-          <small id="stockEditHelp" class="field-help" hidden>
-            Usa los botones de entrada o salida para modificar existencias.
-          </small>
         </label>
 
         <label>
