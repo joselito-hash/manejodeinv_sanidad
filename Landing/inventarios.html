@@ -164,7 +164,6 @@
                   <th>Código</th>
                   <th>Insumo</th>
                   <th>Categoría</th>
-                  <th>Área</th>
                   <th>Existencia</th>
                   <th>Mínimo</th>
                   <th>Unidad</th>
@@ -176,46 +175,9 @@
             </table>
           </div>
 
-          <div id="stockOperationPanel" class="stock-operation-panel" hidden>
-            <div class="stock-operation-card">
-              <div class="stock-operation-header">
-                <div>
-                  <p class="eyebrow">MOVIMIENTO</p>
-                  <h3 id="stockOperationTitle">Registrar movimiento</h3>
-                </div>
-                <button id="closeStockOperationBtn" class="icon-btn" type="button" aria-label="Cerrar">×</button>
-              </div>
-
-              <form id="stockOperationForm" class="stock-operation-form">
-                <input id="stockOperationProductId" type="hidden" />
-                <input id="stockOperationType" type="hidden" />
-
-                <div class="stock-operation-product">
-                  <strong id="stockOperationProductName">Producto</strong>
-                  <span id="stockOperationCurrentStock">Existencia actual: 0</span>
-                </div>
-
-                <label>
-                  <span id="stockOperationQuantityLabel">Cantidad</span>
-                  <input id="stockOperationQuantity" required type="number" min="0.01" step="0.01" inputmode="decimal" />
-                </label>
-
-                <label class="stock-observation-field">
-                  <span>Observaciones</span>
-                  <textarea id="stockOperationObservation" rows="2" maxlength="500" placeholder="Opcional"></textarea>
-                </label>
-
-                <div class="stock-operation-actions">
-                  <button id="cancelStockOperationBtn" type="button" class="secondary-btn">Cancelar</button>
-                  <button id="saveStockOperationBtn" type="submit" class="primary-btn">Registrar movimiento</button>
-                </div>
-              </form>
-            </div>
-          </div>
-
           <div class="panel-footer">
             <span id="resultCount">0 registros</span>
-            <button id="refreshDataBtn" class="text-btn">Actualizar datos</button>
+            <button id="refreshDataBtn" class="text-btn" type="button">Actualizar datos</button>
           </div>
         </section>
       </section>
@@ -286,6 +248,56 @@
     </main>
   </div>
 
+  <div id="stockOperationPanel" class="modal-backdrop stock-operation-backdrop" hidden>
+    <div class="modal stock-operation-card" role="dialog" aria-modal="true" aria-labelledby="stockOperationTitle">
+      <div class="stock-operation-header">
+        <div>
+          <p class="eyebrow">MOVIMIENTO</p>
+          <h3 id="stockOperationTitle">Registrar movimiento</h3>
+        </div>
+        <button id="closeStockOperationBtn" class="icon-btn" type="button" aria-label="Cerrar">×</button>
+      </div>
+
+      <form id="stockOperationForm" class="stock-operation-form" novalidate>
+        <input id="stockOperationProductId" type="hidden" />
+        <input id="stockOperationType" type="hidden" />
+
+        <div class="stock-operation-product">
+          <strong id="stockOperationProductName">Producto</strong>
+          <span id="stockOperationCurrentStock">Existencia actual: 0</span>
+        </div>
+
+        <label>
+          <span id="stockOperationQuantityLabel">Cantidad</span>
+          <input id="stockOperationQuantity" required type="number" min="0.01" step="0.01" inputmode="decimal" />
+        </label>
+
+        <label id="stockObservationField" class="stock-observation-field" hidden>
+          <span>Motivo del ajuste</span>
+          <textarea id="stockOperationObservation" rows="3" maxlength="500" required disabled placeholder="Describe el motivo del ajuste"></textarea>
+        </label>
+
+        <div class="stock-operation-actions">
+          <button id="cancelStockOperationBtn" type="button" class="secondary-btn">Cancelar</button>
+          <button id="saveStockOperationBtn" type="submit" class="primary-btn">Registrar movimiento</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="confirmationBackdrop" class="modal-backdrop confirmation-backdrop" hidden>
+    <div class="modal confirmation-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmationTitle" aria-describedby="confirmationMessage">
+      <div class="confirmation-symbol" aria-hidden="true">!</div>
+      <p class="eyebrow">CONFIRMACIÓN</p>
+      <h2 id="confirmationTitle">Confirmar acción</h2>
+      <p id="confirmationMessage" class="confirmation-message"></p>
+      <div class="confirmation-actions">
+        <button id="confirmationCancelBtn" type="button" class="secondary-btn">Cancelar</button>
+        <button id="confirmationConfirmBtn" type="button" class="primary-btn">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modalBackdrop" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-header">
@@ -317,11 +329,6 @@
             <option value="Protección">Protección</option>
             <option value="Consumibles">Consumibles</option>
           </select>
-        </label>
-
-        <label>
-          <span>Área</span>
-          <input id="area" required placeholder="Ej. Almacén de sanidad" />
         </label>
 
         <label>

@@ -120,10 +120,17 @@ const stockOperationProductName = document.getElementById("stockOperationProduct
 const stockOperationCurrentStock = document.getElementById("stockOperationCurrentStock");
 const stockOperationQuantityLabel = document.getElementById("stockOperationQuantityLabel");
 const stockOperationQuantity = document.getElementById("stockOperationQuantity");
+const stockObservationField = document.getElementById("stockObservationField");
 const stockOperationObservation = document.getElementById("stockOperationObservation");
 const closeStockOperationBtn = document.getElementById("closeStockOperationBtn");
 const cancelStockOperationBtn = document.getElementById("cancelStockOperationBtn");
 const saveStockOperationBtn = document.getElementById("saveStockOperationBtn");
+
+const confirmationBackdrop = document.getElementById("confirmationBackdrop");
+const confirmationTitle = document.getElementById("confirmationTitle");
+const confirmationMessage = document.getElementById("confirmationMessage");
+const confirmationCancelBtn = document.getElementById("confirmationCancelBtn");
+const confirmationConfirmBtn = document.getElementById("confirmationConfirmBtn");
 
 const currentUserName = document.getElementById("currentUserName");
 const currentUserNumber = document.getElementById("currentUserNumber");
@@ -200,7 +207,6 @@ function mapProduct(row) {
     code: row.codigo || "",
     name: row.nombre || "",
     category: row.categoria || "",
-    area: row.area || "",
     stock: Number(row.existencia || 0),
     minStock: Number(row.stock_minimo || 0),
     unit: row.unidad || "",
@@ -224,7 +230,9 @@ function mapMovement(row) {
   const productName = row.producto_nombre || product?.nombre || `Producto ${row.producto_id}`;
   const productUnit = row.producto_unidad || product?.unidad || "";
   const unit = productUnit ? ` ${productUnit}` : "";
-  const observation = row.observaciones ? ` · ${row.observaciones}` : "";
+  const observation = type === "ajuste" && row.observaciones
+    ? ` · ${row.observaciones}`
+    : "";
   const movementDetail = type === "ajuste"
     ? `${formatNumber(row.existencia_anterior)}${unit} → ${formatNumber(row.existencia_nueva)}${unit}`
     : `${formatNumber(row.cantidad)}${unit}`;
@@ -242,7 +250,7 @@ function mapMovement(row) {
 function stateRow(message, isError = false) {
   return `
     <tr>
-      <td colspan="9" data-label="">
+      <td colspan="8" data-label="">
         <div class="empty-state${isError ? " error" : ""}">${escapeHTML(message)}</div>
       </td>
     </tr>
@@ -323,7 +331,7 @@ function renderInventory() {
   const selectedStatus = statusFilter.value;
 
   const filtered = inventory.filter(item => {
-    const searchable = `${item.code} ${item.name} ${item.category} ${item.area}`.toLowerCase();
+    const searchable = `${item.code} ${item.name} ${item.category}`.toLowerCase();
     const matchesSearch = searchable.includes(query);
     const matchesCategory = selectedCategory === "all" || item.category === selectedCategory;
     const matchesStatus = selectedStatus === "all" || getStatus(item) === selectedStatus;
@@ -338,7 +346,6 @@ function renderInventory() {
             <td data-label="Código"><span class="item-code">${escapeHTML(item.code)}</span></td>
             <td data-label="Insumo"><span class="item-name">${escapeHTML(item.name)}</span></td>
             <td data-label="Categoría">${escapeHTML(item.category)}</td>
-            <td data-label="Área">${escapeHTML(item.area)}</td>
             <td data-label="Existencia">${formatNumber(item.stock)}</td>
             <td data-label="Mínimo">${formatNumber(item.minStock)}</td>
             <td data-label="Unidad">${escapeHTML(item.unit)}</td>
@@ -411,7 +418,7 @@ function renderAlerts() {
           <article class="alert-card">
             <span class="badge ${status}">${getStatusLabel(status)}</span>
             <h3>${escapeHTML(item.name)}</h3>
-            <p>${escapeHTML(item.area)} · ${formatNumber(item.stock)} ${escapeHTML(item.unit)} disponibles.</p>
+            <p>${formatNumber(item.stock)} ${escapeHTML(item.unit)} disponibles.</p>
             <strong>Reposición sugerida: ${formatNumber(missing)} ${escapeHTML(item.unit)}</strong>
           </article>
         `;
@@ -564,7 +571,13 @@ async function deleteUser(userId) {
 
   const user = users.find(item => item.user_id === userId);
   if (!user) return;
-  if (!confirm(`¿Eliminar el acceso de "${user.nombre}"? Esta acción no se puede deshacer.`)) return;
+  const accepted = await requestConfirmation({
+    title: "Eliminar usuario",
+    message: `Se eliminará el acceso de ${user.nombre}. Esta acción no se puede deshacer.`,
+    confirmLabel: "Eliminar usuario",
+    danger: true
+  });
+  if (!accepted) return;
 
   try {
     await invokeUserAdministration({ action: "delete", user_id: userId });
@@ -583,6 +596,44 @@ function showToast(message) {
   toast.classList.add("show");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
+let confirmationResolver = null;
+let confirmationReturnFocus = null;
+
+function requestConfirmation({ title, message, confirmLabel = "Confirmar", danger = false }) {
+  if (confirmationResolver) confirmationResolver(false);
+
+  clearTimeout(resolveConfirmation.timer);
+  confirmationTitle.textContent = title;
+  confirmationMessage.textContent = message;
+  confirmationConfirmBtn.textContent = confirmLabel;
+  confirmationConfirmBtn.classList.toggle("danger", danger);
+  confirmationReturnFocus = document.activeElement;
+  confirmationBackdrop.hidden = false;
+
+  requestAnimationFrame(() => {
+    confirmationBackdrop.classList.add("is-visible");
+    confirmationConfirmBtn.focus();
+  });
+
+  return new Promise(resolve => {
+    confirmationResolver = resolve;
+  });
+}
+
+function resolveConfirmation(accepted) {
+  if (confirmationBackdrop.hidden) return;
+
+  const resolver = confirmationResolver;
+  confirmationResolver = null;
+  confirmationBackdrop.classList.remove("is-visible");
+  resolveConfirmation.timer = setTimeout(() => {
+    confirmationBackdrop.hidden = true;
+    if (confirmationReturnFocus instanceof HTMLElement) confirmationReturnFocus.focus();
+    confirmationReturnFocus = null;
+  }, 220);
+  resolver?.(accepted);
 }
 
 function handlePotentialAuthError(error) {
@@ -663,7 +714,6 @@ function openModal(item = null) {
     document.getElementById("code").value = item.code;
     document.getElementById("name").value = item.name;
     document.getElementById("category").value = item.category;
-    document.getElementById("area").value = item.area;
     stockInput.value = item.stock;
     document.getElementById("minStock").value = item.minStock;
     document.getElementById("unit").value = item.unit;
@@ -697,7 +747,12 @@ async function deactivateItem(id) {
 
   const item = inventory.find(product => product.id === String(id));
   if (!item) return;
-  if (!confirm(`¿Dar de baja "${item.name}" del inventario?`)) return;
+  const accepted = await requestConfirmation({
+    title: "Dar de baja el insumo",
+    message: `${item.name} dejará de aparecer en el inventario activo, pero conservará su historial de movimientos.`,
+    confirmLabel: "Dar de baja"
+  });
+  if (!accepted) return;
 
   try {
     const { error } = await supabase.rpc("dar_de_baja_producto", {
@@ -719,9 +774,12 @@ async function permanentlyDeleteItem(id) {
   const item = inventory.find(product => product.id === String(id));
   if (!item) return;
 
-  const accepted = confirm(
-    `¿Eliminar definitivamente "${item.name}"? Esta acción no se puede deshacer.`
-  );
+  const accepted = await requestConfirmation({
+    title: "Eliminar definitivamente",
+    message: `Se intentará eliminar ${item.name} de forma permanente. Esta acción no se puede deshacer.`,
+    confirmLabel: "Eliminar",
+    danger: true
+  });
   if (!accepted) return;
 
   try {
@@ -760,6 +818,7 @@ function openStockOperation(id, type) {
 
   clearTimeout(closeStockOperation.timer);
   stockOperationForm.reset();
+  stockOperationForm.classList.toggle("is-adjustment", isAdjustment);
   stockOperationProductId.value = item.id;
   stockOperationType.value = type;
   stockOperationProductName.textContent = item.name;
@@ -774,17 +833,15 @@ function openStockOperation(id, type) {
   stockOperationQuantityLabel.textContent = isAdjustment ? "Nueva existencia" : "Cantidad";
   stockOperationQuantity.min = isAdjustment ? "0" : "0.01";
   stockOperationQuantity.value = isAdjustment ? String(item.stock) : "1";
+  stockObservationField.hidden = !isAdjustment;
+  stockOperationObservation.required = isAdjustment;
+  stockOperationObservation.disabled = !isAdjustment;
   saveStockOperationBtn.textContent = isAdjustment ? "Guardar ajuste" : titles[type];
 
   stockOperationPanel.hidden = false;
   requestAnimationFrame(() => {
     stockOperationPanel.classList.add("is-visible");
-    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    stockOperationPanel.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "center"
-    });
-    stockOperationQuantity.focus({ preventScroll: true });
+    stockOperationQuantity.focus();
     stockOperationQuantity.select();
   });
 }
@@ -797,12 +854,12 @@ function closeStockOperation() {
   closeStockOperation.timer = setTimeout(() => {
     stockOperationPanel.hidden = true;
     stockOperationForm.reset();
-  }, 190);
+  }, 220);
 }
 
 function setStockOperationBusy(isBusy, type = stockOperationType.value) {
   stockOperationQuantity.disabled = isBusy;
-  stockOperationObservation.disabled = isBusy;
+  stockOperationObservation.disabled = isBusy || type !== "ajuste";
   closeStockOperationBtn.disabled = isBusy;
   cancelStockOperationBtn.disabled = isBusy;
   saveStockOperationBtn.disabled = isBusy;
@@ -854,13 +911,18 @@ stockOperationForm.addEventListener("submit", async event => {
     return;
   }
 
+  const observation = isAdjustment ? stockOperationObservation.value.trim() : null;
+  if (isAdjustment && !observation) {
+    showToast("Describe el motivo del ajuste.");
+    stockOperationObservation.focus();
+    return;
+  }
+
   pendingStockOperations.add(id);
   setStockOperationBusy(true, type);
   let completed = false;
 
   try {
-    const observation = stockOperationObservation.value.trim()
-      || (isAdjustment ? "Ajuste manual de existencia" : null);
     const { error } = await supabase.rpc("registrar_movimiento", {
       p_producto_id: id,
       p_tipo: type,
@@ -909,7 +971,6 @@ itemForm.addEventListener("submit", async event => {
     codigo: document.getElementById("code").value.trim(),
     nombre: document.getElementById("name").value.trim(),
     categoria: document.getElementById("category").value,
-    area: document.getElementById("area").value.trim(),
     stock_minimo: Number(document.getElementById("minStock").value),
     unidad: document.getElementById("unit").value.trim(),
     costo: Number(document.getElementById("cost").value)
@@ -1071,6 +1132,8 @@ closeModalBtn.addEventListener("click", closeModal);
 cancelBtn.addEventListener("click", closeModal);
 closeStockOperationBtn.addEventListener("click", closeStockOperation);
 cancelStockOperationBtn.addEventListener("click", closeStockOperation);
+confirmationCancelBtn.addEventListener("click", () => resolveConfirmation(false));
+confirmationConfirmBtn.addEventListener("click", () => resolveConfirmation(true));
 addUserBtn.addEventListener("click", () => openUserModal());
 responsiveAddUserBtn.addEventListener("click", () => openUserModal());
 closeUserModalBtn.addEventListener("click", closeUserModal);
@@ -1093,10 +1156,19 @@ userModalBackdrop.addEventListener("click", event => {
   if (event.target === userModalBackdrop) closeUserModal();
 });
 
+stockOperationPanel.addEventListener("click", event => {
+  if (event.target === stockOperationPanel) closeStockOperation();
+});
+
+confirmationBackdrop.addEventListener("click", event => {
+  if (event.target === confirmationBackdrop) resolveConfirmation(false);
+});
+
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !modalBackdrop.hidden) closeModal();
   if (event.key === "Escape" && !userModalBackdrop.hidden) closeUserModal();
   if (event.key === "Escape" && !stockOperationPanel.hidden) closeStockOperation();
+  if (event.key === "Escape" && !confirmationBackdrop.hidden) resolveConfirmation(false);
 });
 
 searchInput.addEventListener("input", renderInventory);
@@ -1153,6 +1225,7 @@ function updateContextualActions(view) {
   addUserBtn.classList.toggle("permission-hidden", !showUserAdd);
   responsiveUserAddAction.classList.toggle("permission-hidden", !showUserAdd);
   responsiveAddUserBtn.disabled = !showUserAdd;
+  document.body.classList.toggle("responsive-action-available", showProductAdd || showUserAdd);
   queueResponsiveUiUpdate();
 }
 
@@ -1328,15 +1401,15 @@ let responsiveUiFrame;
 function updateResponsiveUi() {
   responsiveUiFrame = null;
 
-  responsiveAddAction.classList.remove("is-visible");
-  responsiveAddAction.setAttribute("aria-hidden", "true");
-  responsiveAddItemBtn.tabIndex = -1;
-  responsiveUserAddAction.classList.remove("is-visible");
-  responsiveUserAddAction.setAttribute("aria-hidden", "true");
-  responsiveAddUserBtn.tabIndex = -1;
-  document.body.classList.remove("responsive-action-visible");
+  const setActionVisibility = (action, button, visible) => {
+    action.classList.toggle("is-visible", visible);
+    action.setAttribute("aria-hidden", String(!visible));
+    button.tabIndex = visible ? 0 : -1;
+  };
 
   if (!responsiveLayout.matches) {
+    setActionVisibility(responsiveAddAction, responsiveAddItemBtn, false);
+    setActionVisibility(responsiveUserAddAction, responsiveAddUserBtn, false);
     document.documentElement.style.removeProperty("--responsive-nav-height");
     return;
   }
@@ -1349,17 +1422,25 @@ function updateResponsiveUi() {
   const triggerButton = isUsersView ? addUserBtn : addItemBtn;
   const floatingAction = isUsersView ? responsiveUserAddAction : responsiveAddAction;
   const floatingButton = isUsersView ? responsiveAddUserBtn : responsiveAddItemBtn;
+  const inactiveAction = isUsersView ? responsiveAddAction : responsiveUserAddAction;
+  const inactiveButton = isUsersView ? responsiveAddItemBtn : responsiveAddUserBtn;
   const allowed = isUsersView
     ? currentPermissions.manageUsers
     : currentPermissions.addProducts;
 
-  if (!allowed || floatingAction.classList.contains("permission-hidden")) return;
+  setActionVisibility(inactiveAction, inactiveButton, false);
 
-  const shouldShow = triggerButton.getBoundingClientRect().bottom <= navBottom;
-  floatingAction.classList.toggle("is-visible", shouldShow);
-  floatingAction.setAttribute("aria-hidden", String(!shouldShow));
-  floatingButton.tabIndex = shouldShow ? 0 : -1;
-  document.body.classList.toggle("responsive-action-visible", shouldShow);
+  if (!allowed || floatingAction.classList.contains("permission-hidden")) {
+    setActionVisibility(floatingAction, floatingButton, false);
+    return;
+  }
+
+  const triggerBottom = triggerButton.getBoundingClientRect().bottom;
+  const alreadyVisible = floatingAction.classList.contains("is-visible");
+  const shouldShow = alreadyVisible
+    ? triggerBottom <= navBottom + 18
+    : triggerBottom <= navBottom - 2;
+  setActionVisibility(floatingAction, floatingButton, shouldShow);
 }
 
 function queueResponsiveUiUpdate() {
