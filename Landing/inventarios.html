@@ -118,11 +118,15 @@
                   <div id="notificationsList" class="notification-list" aria-live="polite"></div>
 
                   <button id="viewAlertsBtn" class="notification-footer-btn" type="button">
-                    Ver todas las alertas
+                    <span id="notificationFooterLabel">Ver todas las alertas</span>
                     <span aria-hidden="true">→</span>
                   </button>
                 </section>
               </div>
+
+              <button id="changePasswordBtn" class="text-btn security-btn" type="button">
+                Contraseña
+              </button>
 
               <button id="logoutBtn" class="text-btn logout-btn" type="button">
                 Cerrar sesión
@@ -131,9 +135,9 @@
           </div>
 
           <div class="topbar-action-row">
-            <div class="date-box">
-              <span>Última actualización</span>
-              <strong id="currentDate">—</strong>
+            <div id="realtimeStatusBox" class="date-box realtime-status-box" data-state="connecting">
+              <span>Sincronización</span>
+              <strong><i aria-hidden="true"></i><span id="realtimeStatus">Conectando…</span></strong>
             </div>
             <button id="addItemBtn" class="primary-btn">+ Nuevo insumo</button>
           </div>
@@ -239,7 +243,6 @@
 
           <div class="panel-footer">
             <span id="resultCount">0 registros</span>
-            <button id="refreshDataBtn" class="text-btn" type="button">Actualizar datos</button>
           </div>
         </section>
       </section>
@@ -292,6 +295,7 @@
                 <tr>
                   <th>Colaborador</th>
                   <th>Nombre</th>
+                  <th>Correo</th>
                   <th>Rol</th>
                   <th>Estado</th>
                   <th></th>
@@ -303,7 +307,6 @@
 
           <div class="panel-footer">
             <span id="usersResultCount">0 usuarios</span>
-            <button id="refreshUsersBtn" class="text-btn" type="button">Actualizar usuarios</button>
           </div>
         </section>
       </section>
@@ -445,6 +448,12 @@
         </label>
 
         <label>
+          <span>Correo personal</span>
+          <input id="userEmail" required type="email" maxlength="320" autocomplete="off" placeholder="nombre@empresa.com" />
+          <small class="field-help">Aquí recibirá sus credenciales y avisos de seguridad.</small>
+        </label>
+
+        <label>
           <span>Rol</span>
           <select id="userRole" required>
             <option value="consulta">Consulta</option>
@@ -452,12 +461,6 @@
             <option value="supervisor">Supervisor</option>
             <option value="administrador">Administrador</option>
           </select>
-        </label>
-
-        <label>
-          <span id="userPasswordLabel">Contraseña temporal</span>
-          <input id="userPassword" type="password" minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
-          <small id="userPasswordHelp" class="field-help">El usuario podrá iniciar sesión con esta contraseña.</small>
         </label>
 
         <label class="user-active-control">
@@ -468,6 +471,47 @@
         <div class="form-actions">
           <button type="button" id="cancelUserBtn" class="secondary-btn">Cancelar</button>
           <button id="saveUserBtn" type="submit" class="primary-btn">Guardar usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="passwordChangeBackdrop" class="modal-backdrop password-change-backdrop" hidden>
+    <div class="modal password-change-modal" role="dialog" aria-modal="true" aria-labelledby="passwordChangeTitle">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">SEGURIDAD DE LA CUENTA</p>
+          <h2 id="passwordChangeTitle">Crea tu contraseña personal</h2>
+        </div>
+        <button id="closePasswordChangeBtn" class="icon-btn" type="button" aria-label="Cerrar">×</button>
+      </div>
+
+      <div class="password-change-intro">
+        <strong id="passwordChangeGreeting">Tu cuenta está lista.</strong>
+        <p>Confirma el correo registrado y reemplaza la contraseña temporal por una que solo tú conozcas.</p>
+      </div>
+
+      <form id="passwordChangeForm" class="form-grid" novalidate>
+        <label class="full-field">
+          <span>Confirma tu correo personal</span>
+          <input id="passwordChangeEmail" required type="email" maxlength="320" autocomplete="email" placeholder="nombre@empresa.com" />
+        </label>
+
+        <label>
+          <span>Nueva contraseña</span>
+          <input id="passwordChangeNew" required type="password" minlength="10" maxlength="72" autocomplete="new-password" placeholder="Mínimo 10 caracteres" />
+        </label>
+
+        <label>
+          <span>Confirma la contraseña</span>
+          <input id="passwordChangeConfirm" required type="password" minlength="10" maxlength="72" autocomplete="new-password" placeholder="Escríbela nuevamente" />
+        </label>
+
+        <p id="passwordChangeMessage" class="form-status full-field" role="status"></p>
+
+        <div class="form-actions">
+          <button id="cancelPasswordChangeBtn" type="button" class="secondary-btn">Ahora no</button>
+          <button id="savePasswordChangeBtn" type="submit" class="primary-btn">Guardar contraseña</button>
         </div>
       </form>
     </div>

@@ -621,6 +621,69 @@ a {
   line-height: 1.6;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
+.recovery-modal {
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+}
+
+.recovery-form {
+  display: grid;
+  gap: 15px;
+}
+
+.recovery-form[hidden] {
+  display: none;
+}
+
+.recovery-form .field-group {
+  gap: 7px;
+  margin: 0;
+}
+
+.recovery-code-control input {
+  text-align: center;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+}
+
+.recovery-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 10px;
+}
+
+.recovery-actions .login-button,
+.recovery-actions .secondary-button {
+  height: 46px;
+}
+
+.recovery-message {
+  min-height: 18px;
+  margin-top: 13px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.recovery-message.success {
+  color: var(--success);
+}
+
+.recovery-message.error {
+  color: var(--danger);
+}
+
+.recovery-form button:disabled,
+.modal-close:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .modal-close {
   position: absolute;
   top: 14px;
@@ -649,6 +712,16 @@ a {
   background: #eee8df;
   font-weight: 600;
   cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .recovery-modal {
+    padding: 24px 18px;
+  }
+
+  .recovery-actions {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {

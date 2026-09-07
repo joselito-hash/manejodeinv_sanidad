@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Acceso al inventario de sanidad" />
-  <title>Acceso | Inventario de Sanidad</title>
+  <title>Login Inventario de Sanidad</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -162,18 +162,60 @@
   </main>
 
   <div id="forgotModal" class="modal-backdrop" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="forgotTitle">
+    <div class="modal recovery-modal" role="dialog" aria-modal="true" aria-labelledby="forgotTitle">
       <button id="closeForgotModal" class="modal-close" aria-label="Cerrar">×</button>
 
       <p class="eyebrow">RECUPERACIÓN DE ACCESO</p>
       <h3 id="forgotTitle">Olvidé mi contraseña</h3>
-      <p>
-        Para recuperar el acceso, contacta al administrador del sistema o al área responsable de TI.
-      </p>
+      <p id="forgotDescription">Confirma tus datos y te enviaremos un código de cinco dígitos.</p>
 
-      <button id="closeForgotAction" class="secondary-button" type="button">
-        Entendido
-      </button>
+      <form id="forgotRequestForm" class="recovery-form" novalidate>
+        <div class="field-group">
+          <label for="forgotEmployeeNumber">Número de colaborador</label>
+          <div class="input-control">
+            <input id="forgotEmployeeNumber" required inputmode="numeric" autocomplete="username" placeholder="Ej. 102458" />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="forgotEmail">Correo personal registrado</label>
+          <div class="input-control">
+            <input id="forgotEmail" required type="email" autocomplete="email" placeholder="nombre@empresa.com" />
+          </div>
+        </div>
+
+        <button id="forgotRequestBtn" class="login-button" type="submit">Enviar código</button>
+      </form>
+
+      <form id="forgotVerifyForm" class="recovery-form" novalidate hidden>
+        <div class="field-group">
+          <label for="forgotCode">Código de cinco dígitos</label>
+          <div class="input-control recovery-code-control">
+            <input id="forgotCode" required inputmode="numeric" autocomplete="one-time-code" maxlength="5" pattern="[0-9]{5}" placeholder="00000" />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="forgotNewPassword">Nueva contraseña</label>
+          <div class="input-control">
+            <input id="forgotNewPassword" required type="password" minlength="10" maxlength="72" autocomplete="new-password" placeholder="Mínimo 10 caracteres" />
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="forgotConfirmPassword">Confirma la contraseña</label>
+          <div class="input-control">
+            <input id="forgotConfirmPassword" required type="password" minlength="10" maxlength="72" autocomplete="new-password" placeholder="Escríbela nuevamente" />
+          </div>
+        </div>
+
+        <div class="recovery-actions">
+          <button id="forgotBackBtn" class="secondary-button" type="button">Corregir datos</button>
+          <button id="forgotVerifyBtn" class="login-button" type="submit">Cambiar contraseña</button>
+        </div>
+      </form>
+
+      <div id="forgotMessage" class="recovery-message" role="status"></div>
     </div>
   </div>
 

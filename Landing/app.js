@@ -64,17 +64,22 @@ const NO_PERMISSIONS = Object.freeze({
 let inventory = [];
 let movements = [];
 let users = [];
+let notifications = [];
 let currentUser = null;
 let currentProfile = null;
 let currentPermissions = NO_PERMISSIONS;
 let inventoryState = "loading";
 let movementsState = "loading";
 let usersState = "idle";
+let notificationsState = "loading";
 let authRedirecting = false;
 let logoutTransitionStarted = false;
 let notificationsOpen = false;
+let realtimeChannel = null;
+let realtimeWasSubscribed = false;
 const pendingStockOperations = new Set();
 const readNotificationIds = new Set();
+const realtimeSyncTimers = new Map();
 
 const inventoryBody = document.getElementById("inventoryBody");
 const searchInput = document.getElementById("searchInput");
@@ -94,7 +99,6 @@ const usersBody = document.getElementById("usersBody");
 const usersResultCount = document.getElementById("usersResultCount");
 const userSearchInput = document.getElementById("userSearchInput");
 const addUserBtn = document.getElementById("addUserBtn");
-const refreshUsersBtn = document.getElementById("refreshUsersBtn");
 
 const modalBackdrop = document.getElementById("modalBackdrop");
 const itemForm = document.getElementById("itemForm");
@@ -107,7 +111,6 @@ const sidebar = document.querySelector(".sidebar");
 const closeModalBtn = document.getElementById("closeModalBtn");
 const cancelBtn = document.getElementById("cancelBtn");
 const modalTitle = document.getElementById("modalTitle");
-const refreshDataBtn = document.getElementById("refreshDataBtn");
 const saveItemBtn = document.getElementById("saveItemBtn");
 const stockField = document.getElementById("stockField");
 const stockInput = document.getElementById("stock");
@@ -144,7 +147,11 @@ const notificationsSummary = document.getElementById("notificationsSummary");
 const notificationsList = document.getElementById("notificationsList");
 const markNotificationsReadBtn = document.getElementById("markNotificationsReadBtn");
 const viewAlertsBtn = document.getElementById("viewAlertsBtn");
+const notificationFooterLabel = document.getElementById("notificationFooterLabel");
+const changePasswordBtn = document.getElementById("changePasswordBtn");
 const logoutBtn = document.getElementById("logoutBtn");
+const realtimeStatusBox = document.getElementById("realtimeStatusBox");
+const realtimeStatus = document.getElementById("realtimeStatus");
 const appBootstrapStatus = document.getElementById("appBootstrapStatus");
 const logoutTransition = document.getElementById("logoutTransition");
 const logoutPhrase = document.getElementById("logoutPhrase");
@@ -158,11 +165,21 @@ const saveUserBtn = document.getElementById("saveUserBtn");
 const userIdInput = document.getElementById("userId");
 const userEmployeeNumberInput = document.getElementById("userEmployeeNumber");
 const userFullNameInput = document.getElementById("userFullName");
+const userEmailInput = document.getElementById("userEmail");
 const userRoleInput = document.getElementById("userRole");
-const userPasswordInput = document.getElementById("userPassword");
-const userPasswordLabel = document.getElementById("userPasswordLabel");
-const userPasswordHelp = document.getElementById("userPasswordHelp");
 const userActiveInput = document.getElementById("userActive");
+
+const passwordChangeBackdrop = document.getElementById("passwordChangeBackdrop");
+const passwordChangeForm = document.getElementById("passwordChangeForm");
+const passwordChangeTitle = document.getElementById("passwordChangeTitle");
+const passwordChangeGreeting = document.getElementById("passwordChangeGreeting");
+const passwordChangeEmail = document.getElementById("passwordChangeEmail");
+const passwordChangeNew = document.getElementById("passwordChangeNew");
+const passwordChangeConfirm = document.getElementById("passwordChangeConfirm");
+const passwordChangeMessage = document.getElementById("passwordChangeMessage");
+const closePasswordChangeBtn = document.getElementById("closePasswordChangeBtn");
+const cancelPasswordChangeBtn = document.getElementById("cancelPasswordChangeBtn");
+const savePasswordChangeBtn = document.getElementById("savePasswordChangeBtn");
 
 function getStatus(item) {
   if (Number(item.stock) <= 0) return "out";
@@ -384,7 +401,7 @@ function updateStats() {
   }
 }
 
-function getInventoryNotifications() {
+function getStockNotifications() {
   return inventory
     .filter(item => getStatus(item) !== "ok")
     .sort((first, second) => {
@@ -399,35 +416,83 @@ function getInventoryNotifications() {
 
       return {
         id: `stock-${item.id}-${status}`,
+        databaseId: null,
+        source: "stock",
+        type: status === "out" ? "sin_existencia" : "stock_bajo",
         status,
         title: status === "out" ? "Sin existencia" : "Stock bajo",
         product: item.name,
         detail: status === "out"
           ? `Reposición prioritaria · mínimo ${minimumText}`
-          : `${stockText} disponibles · mínimo ${minimumText}`
+          : `${stockText} disponibles · mínimo ${minimumText}`,
+        date: null,
+        read: readNotificationIds.has(`stock-${item.id}-${status}`)
       };
     });
 }
 
+function mapNotification(row) {
+  const type = String(row.tipo || "informacion").toLowerCase();
+  const data = row.datos && typeof row.datos === "object" ? row.datos : {};
+  const statusByType = {
+    ajuste_inventario: "adjustment",
+    password_cambiada: "security",
+    bienvenida: "welcome"
+  };
+  const productByType = {
+    ajuste_inventario: data.producto_nombre || "Inventario actualizado",
+    password_cambiada: data.nombre || "Actividad de seguridad",
+    bienvenida: "Tu cuenta"
+  };
+
+  return {
+    id: `db-${row.id}`,
+    databaseId: Number(row.id),
+    source: "database",
+    type,
+    status: statusByType[type] || "information",
+    title: row.titulo || "Notificación",
+    product: productByType[type] || "Inventario de sanidad",
+    detail: row.mensaje || "",
+    data,
+    date: row.created_at || null,
+    read: Boolean(row.leida_at)
+  };
+}
+
+function getVisibleNotifications() {
+  const databaseNotifications = notifications.map(mapNotification);
+  if (String(currentProfile?.rol || "").toLowerCase() === "administrador") {
+    return databaseNotifications;
+  }
+  return [...databaseNotifications, ...getStockNotifications()];
+}
+
 function renderNotificationCenter() {
-  if (inventoryState === "loading" && inventory.length === 0) {
+  const isAdmin = String(currentProfile?.rol || "").toLowerCase() === "administrador";
+  const waitingForNotifications = notificationsState === "loading" && notifications.length === 0;
+  const waitingForInventory = !isAdmin && inventoryState === "loading" && inventory.length === 0;
+
+  notificationFooterLabel.textContent = isAdmin ? "Ver movimientos" : "Ver todas las alertas";
+
+  if (waitingForNotifications || waitingForInventory) {
     notificationsBadge.hidden = true;
-    notificationsSummary.textContent = "Actualizando inventario";
+    notificationsSummary.textContent = "Sincronizando";
     notificationsList.innerHTML = '<div class="notification-empty">Cargando notificaciones...</div>';
     markNotificationsReadBtn.disabled = true;
     return;
   }
 
-  if (inventoryState === "error") {
+  if (notificationsState === "error" && (isAdmin || inventoryState === "error")) {
     notificationsBadge.hidden = true;
     notificationsSummary.textContent = "No disponible";
-    notificationsList.innerHTML = '<div class="notification-empty error">No fue posible revisar las alertas.</div>';
+    notificationsList.innerHTML = '<div class="notification-empty error">No fue posible cargar las notificaciones.</div>';
     markNotificationsReadBtn.disabled = true;
     return;
   }
 
-  const notifications = getInventoryNotifications();
-  const unreadCount = notifications.filter(item => !readNotificationIds.has(item.id)).length;
+  const visibleNotifications = getVisibleNotifications();
+  const unreadCount = visibleNotifications.filter(item => !item.read).length;
 
   notificationsBadge.hidden = unreadCount === 0;
   notificationsBadge.textContent = unreadCount > 9 ? "9+" : String(unreadCount);
@@ -438,20 +503,25 @@ function renderNotificationCenter() {
       : "Abrir centro de notificaciones"
   );
   markNotificationsReadBtn.disabled = unreadCount === 0;
-  notificationsSummary.textContent = notifications.length === 0
+  notificationsSummary.textContent = visibleNotifications.length === 0
     ? "Sin pendientes"
     : unreadCount === 0
-      ? `${notifications.length} ${notifications.length === 1 ? "alerta revisada" : "alertas revisadas"}`
+      ? `${visibleNotifications.length} ${visibleNotifications.length === 1 ? "notificación revisada" : "notificaciones revisadas"}`
       : `${unreadCount} ${unreadCount === 1 ? "pendiente" : "pendientes"}`;
 
-  notificationsList.innerHTML = notifications.length
-    ? notifications.map(notification => {
-        const isRead = readNotificationIds.has(notification.id);
+  notificationsList.innerHTML = visibleNotifications.length
+    ? visibleNotifications.map(notification => {
+        const isRead = notification.read;
+        const date = notification.date
+          ? new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" })
+            .format(new Date(notification.date))
+          : "";
         return `
           <button
             type="button"
             class="notification-item ${notification.status}${isRead ? " is-read" : ""}"
             data-notification-id="${escapeHTML(notification.id)}"
+            data-notification-source="${escapeHTML(notification.source)}"
           >
             <span class="notification-status-dot" aria-hidden="true"></span>
             <span class="notification-copy">
@@ -461,6 +531,7 @@ function renderNotificationCenter() {
               </span>
               <span class="notification-product">${escapeHTML(notification.product)}</span>
               <span class="notification-detail">${escapeHTML(notification.detail)}</span>
+              ${date ? `<time class="notification-date">${escapeHTML(date)}</time>` : ""}
             </span>
           </button>
         `;
@@ -469,7 +540,9 @@ function renderNotificationCenter() {
         <div class="notification-empty is-clear">
           <span aria-hidden="true">✓</span>
           <strong>Todo en orden</strong>
-          <p>No hay productos con faltantes o stock bajo.</p>
+          <p>${isAdmin
+            ? "No hay ajustes ni cambios de contraseña pendientes."
+            : "No hay notificaciones ni alertas de stock pendientes."}</p>
         </div>
       `;
 }
@@ -482,12 +555,56 @@ function setNotificationsOpen(open, returnFocus = false) {
   if (!open && returnFocus) notificationsBtn.focus();
 }
 
-function openAlertsFromNotifications() {
+function openNotificationFooter() {
   setNotificationsOpen(false);
-  document.querySelector('.nav-item[data-view="alertas"]')?.click();
+  const view = String(currentProfile?.rol || "").toLowerCase() === "administrador"
+    ? "movimientos"
+    : "alertas";
+  document.querySelector(`.nav-item[data-view="${view}"]`)?.click();
   requestAnimationFrame(() => {
-    document.getElementById("alertasView")?.scrollIntoView({ block: "start" });
+    document.getElementById(`${view}View`)?.scrollIntoView({ block: "start" });
   });
+}
+
+async function markDatabaseNotifications(ids = null) {
+  const { error } = await supabase.rpc("marcar_notificaciones_leidas", {
+    p_ids: ids
+  });
+  if (error) throw error;
+}
+
+async function openNotification(notification) {
+  if (!notification) return;
+
+  try {
+    if (notification.source === "database" && !notification.read) {
+      await markDatabaseNotifications([notification.databaseId]);
+      notification.read = true;
+      const stored = notifications.find(item => Number(item.id) === notification.databaseId);
+      if (stored) stored.leida_at = new Date().toISOString();
+    } else if (notification.source === "stock") {
+      readNotificationIds.add(notification.id);
+    }
+  } catch (error) {
+    console.error("No fue posible marcar la notificación como leída.", error);
+  }
+
+  renderNotificationCenter();
+  setNotificationsOpen(false);
+
+  if (notification.type === "bienvenida") {
+    openPasswordChangeModal(true);
+    return;
+  }
+  if (notification.type === "ajuste_inventario") {
+    document.querySelector('.nav-item[data-view="movimientos"]')?.click();
+    return;
+  }
+  if (notification.type === "password_cambiada" && currentPermissions.manageUsers) {
+    document.querySelector('.nav-item[data-view="usuarios"]')?.click();
+    return;
+  }
+  document.querySelector('.nav-item[data-view="alertas"]')?.click();
 }
 
 function renderInventory() {
@@ -613,7 +730,7 @@ function renderUsers() {
 
   if (usersState === "loading") {
     usersBody.innerHTML = `
-      <tr><td colspan="5"><div class="empty-state">Cargando usuarios...</div></td></tr>
+      <tr><td colspan="6"><div class="empty-state">Cargando usuarios...</div></td></tr>
     `;
     usersResultCount.textContent = "Cargando...";
     return;
@@ -621,7 +738,7 @@ function renderUsers() {
 
   if (usersState === "error") {
     usersBody.innerHTML = `
-      <tr><td colspan="5"><div class="empty-state error">No fue posible cargar los usuarios.</div></td></tr>
+      <tr><td colspan="6"><div class="empty-state error">No fue posible cargar los usuarios.</div></td></tr>
     `;
     usersResultCount.textContent = "Sin datos";
     return;
@@ -629,7 +746,7 @@ function renderUsers() {
 
   const query = userSearchInput.value.trim().toLowerCase();
   const filteredUsers = users.filter(user => {
-    const searchable = `${user.numero_colaborador} ${user.nombre} ${user.rol}`.toLowerCase();
+    const searchable = `${user.numero_colaborador} ${user.nombre} ${user.correo || ""} ${user.rol}`.toLowerCase();
     return searchable.includes(query);
   });
 
@@ -648,6 +765,7 @@ function renderUsers() {
                 ${isCurrentUser ? '<span class="user-self-label">Tu cuenta</span>' : ""}
               </div>
             </td>
+            <td data-label="Correo"><span class="user-email-cell">${escapeHTML(user.correo || "Sin correo")}</span></td>
             <td data-label="Rol">${escapeHTML(formatRole(user.rol))}</td>
             <td data-label="Estado"><span class="badge ${statusClass}">${statusLabel}</span></td>
             <td data-label="Acciones">
@@ -661,21 +779,23 @@ function renderUsers() {
           </tr>
         `;
       }).join("")
-    : '<tr><td colspan="5"><div class="empty-state">No se encontraron usuarios.</div></td></tr>';
+    : '<tr><td colspan="6"><div class="empty-state">No se encontraron usuarios.</div></td></tr>';
 
   usersResultCount.textContent = `${filteredUsers.length} ${filteredUsers.length === 1 ? "usuario" : "usuarios"}`;
 }
 
-async function cargarUsuarios() {
+async function cargarUsuarios({ silent = false } = {}) {
   if (!currentPermissions.manageUsers) return false;
 
-  usersState = "loading";
-  renderUsers();
+  if (!silent || users.length === 0) {
+    usersState = "loading";
+    renderUsers();
+  }
 
   try {
     const { data, error } = await supabase
       .from("perfiles")
-      .select("user_id,numero_colaborador,nombre,rol,activo,created_at")
+      .select("user_id,numero_colaborador,nombre,correo,correo_verificado_at,requiere_cambio_password,credenciales_enviadas_at,rol,activo,created_at")
       .order("nombre", { ascending: true });
 
     if (error) throw error;
@@ -686,9 +806,11 @@ async function cargarUsuarios() {
     return true;
   } catch (error) {
     console.error("No fue posible cargar los usuarios.", error);
-    users = [];
-    usersState = "error";
-    renderUsers();
+    if (!silent || users.length === 0) {
+      users = [];
+      usersState = "error";
+      renderUsers();
+    }
     handlePotentialAuthError(error);
     return false;
   }
@@ -713,16 +835,12 @@ function openUserModal(user = null) {
   userForm.reset();
   userIdInput.value = user?.user_id || "";
   userModalTitle.textContent = user ? "Editar usuario" : "Nuevo usuario";
-  userPasswordLabel.textContent = user ? "Nueva contraseña" : "Contraseña temporal";
-  userPasswordHelp.textContent = user
-    ? "Déjala vacía para conservar la contraseña actual."
-    : "El usuario podrá iniciar sesión con esta contraseña.";
-  userPasswordInput.required = !user;
   userActiveInput.checked = user ? user.activo === true : true;
 
   if (user) {
     userEmployeeNumberInput.value = user.numero_colaborador;
     userFullNameInput.value = user.nombre;
+    userEmailInput.value = user.correo || "";
     userRoleInput.value = String(user.rol || "consulta").toLowerCase();
   } else {
     userRoleInput.value = "consulta";
@@ -748,6 +866,131 @@ function setUserSaveBusy(isBusy) {
   saveUserBtn.textContent = isBusy ? "Guardando..." : "Guardar usuario";
 }
 
+async function invokeAccountSecurity(body) {
+  const { data, error } = await supabase.functions.invoke("seguridad-cuenta", { body });
+  if (error) throw error;
+  if (!data?.ok) {
+    const operationError = new Error(data?.error || "operacion_seguridad_fallida");
+    operationError.userMessage = data?.message;
+    throw operationError;
+  }
+  return data;
+}
+
+function setPasswordChangeMessage(message = "", type = "") {
+  passwordChangeMessage.textContent = message;
+  passwordChangeMessage.className = `form-status full-field${type ? ` ${type}` : ""}`;
+}
+
+function openPasswordChangeModal(initialSetup = false) {
+  passwordChangeForm.reset();
+  passwordChangeTitle.textContent = initialSetup
+    ? "Crea tu contraseña personal"
+    : "Cambiar contraseña";
+  passwordChangeGreeting.textContent = initialSetup
+    ? `Te damos la bienvenida, ${currentProfile?.nombre || "colaborador"}.`
+    : "Protege tu acceso con una contraseña personal.";
+  setPasswordChangeMessage();
+  passwordChangeBackdrop.hidden = false;
+  passwordChangeBackdrop.dataset.initialSetup = String(initialSetup);
+  setTimeout(() => passwordChangeEmail.focus(), 50);
+}
+
+function closePasswordChangeModal() {
+  if (savePasswordChangeBtn.disabled) return;
+  passwordChangeBackdrop.hidden = true;
+  passwordChangeForm.reset();
+  setPasswordChangeMessage();
+}
+
+function validateSecurePassword(value) {
+  if (value.length < 10 || value.length > 72) {
+    return "La contraseña debe tener entre 10 y 72 caracteres.";
+  }
+  if (!/[a-záéíóúñ]/i.test(value) || !/[0-9]/.test(value)) {
+    return "La contraseña debe combinar letras y números.";
+  }
+  return "";
+}
+
+function setPasswordChangeBusy(isBusy) {
+  savePasswordChangeBtn.disabled = isBusy;
+  cancelPasswordChangeBtn.disabled = isBusy;
+  closePasswordChangeBtn.disabled = isBusy;
+  savePasswordChangeBtn.textContent = isBusy ? "Guardando…" : "Guardar contraseña";
+}
+
+passwordChangeForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  const email = passwordChangeEmail.value.trim().toLowerCase();
+  const newPassword = passwordChangeNew.value;
+  const confirmation = passwordChangeConfirm.value;
+  const passwordValidation = validateSecurePassword(newPassword);
+
+  if (!passwordChangeEmail.validity.valid || !email) {
+    setPasswordChangeMessage("Confirma el correo personal registrado.", "error");
+    return;
+  }
+  if (passwordValidation) {
+    setPasswordChangeMessage(passwordValidation, "error");
+    return;
+  }
+  if (newPassword !== confirmation) {
+    setPasswordChangeMessage("Las contraseñas no coinciden.", "error");
+    return;
+  }
+
+  setPasswordChangeBusy(true);
+  setPasswordChangeMessage();
+
+  try {
+    const result = await invokeAccountSecurity({
+      action: "change-password",
+      correo: email,
+      password: newPassword
+    });
+    currentProfile = {
+      ...currentProfile,
+      requiere_cambio_password: false,
+      correo_verificado_at: new Date().toISOString()
+    };
+
+    const welcomeIds = notifications
+      .filter(notification => notification.tipo === "bienvenida" && !notification.leida_at)
+      .map(notification => Number(notification.id));
+    if (welcomeIds.length) {
+      try {
+        await markDatabaseNotifications(welcomeIds);
+        const readAt = new Date().toISOString();
+        notifications.forEach(notification => {
+          if (welcomeIds.includes(Number(notification.id))) notification.leida_at = readAt;
+        });
+      } catch (notificationError) {
+        console.error("No fue posible cerrar la bienvenida.", notificationError);
+      }
+    }
+
+    renderNotificationCenter();
+    setPasswordChangeMessage(
+      result.email_warning
+        ? "Contraseña actualizada. El envío de confirmación quedó registrado para revisión."
+        : "Contraseña actualizada. También enviamos una confirmación a tu correo.",
+      "success"
+    );
+    showToast("Contraseña actualizada correctamente.");
+    setTimeout(() => {
+      setPasswordChangeBusy(false);
+      closePasswordChangeModal();
+    }, 1400);
+  } catch (error) {
+    console.error("No fue posible cambiar la contraseña.", error);
+    if (!handlePotentialAuthError(error)) {
+      setPasswordChangeMessage(error.userMessage || "No fue posible actualizar la contraseña.", "error");
+    }
+    setPasswordChangeBusy(false);
+  }
+});
+
 async function deleteUser(userId) {
   if (!currentPermissions.manageUsers || userId === currentUser?.id) return;
 
@@ -763,7 +1006,7 @@ async function deleteUser(userId) {
 
   try {
     await invokeUserAdministration({ action: "delete", user_id: userId });
-    await cargarUsuarios();
+    await cargarUsuarios({ silent: true });
     showToast("Usuario eliminado.");
   } catch (error) {
     console.error("No fue posible eliminar el usuario.", error);
@@ -820,15 +1063,23 @@ function resolveConfirmation(accepted) {
 
 function handlePotentialAuthError(error) {
   const message = String(error?.message || "").toLowerCase();
-  const expired = error?.status === 401 || message.includes("jwt") || message.includes("session");
+  const status = error?.status || error?.context?.status;
+  const expired = status === 401 || message.includes("jwt") || message.includes("session");
 
   if (expired) redirectToLogin("Sesión expirada.");
   return expired;
 }
 
-async function cargarInventario() {
-  inventoryState = "loading";
-  renderInventory();
+function setRealtimeStatus(state, label) {
+  realtimeStatusBox.dataset.state = state;
+  realtimeStatus.textContent = label;
+}
+
+async function cargarInventario({ silent = false } = {}) {
+  if (!silent || inventory.length === 0) {
+    inventoryState = "loading";
+    renderInventory();
+  }
 
   try {
     const { data, error } = await supabase.rpc("listar_productos_activos");
@@ -841,17 +1092,21 @@ async function cargarInventario() {
     return true;
   } catch (error) {
     console.error("No fue posible cargar productos desde Supabase.", error);
-    inventory = [];
-    inventoryState = "error";
-    renderInventory();
+    if (!silent || inventory.length === 0) {
+      inventory = [];
+      inventoryState = "error";
+      renderInventory();
+    }
     handlePotentialAuthError(error);
     return false;
   }
 }
 
-async function cargarMovimientos() {
-  movementsState = "loading";
-  renderMovements();
+async function cargarMovimientos({ silent = false } = {}) {
+  if (!silent || movements.length === 0) {
+    movementsState = "loading";
+    renderMovements();
+  }
 
   try {
     const { data, error } = await supabase.rpc("listar_movimientos", {
@@ -866,16 +1121,93 @@ async function cargarMovimientos() {
     return true;
   } catch (error) {
     console.error("No fue posible cargar movimientos desde Supabase.", error);
-    movements = [];
-    movementsState = "error";
-    renderMovements();
+    if (!silent || movements.length === 0) {
+      movements = [];
+      movementsState = "error";
+      renderMovements();
+    }
     handlePotentialAuthError(error);
     return false;
   }
 }
 
-async function refreshAllData() {
-  const results = await Promise.all([cargarInventario(), cargarMovimientos()]);
+async function cargarNotificaciones({ silent = false } = {}) {
+  if (!silent || notifications.length === 0) {
+    notificationsState = "loading";
+    renderNotificationCenter();
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("notificaciones")
+      .select("id,tipo,titulo,mensaje,datos,leida_at,created_at")
+      .order("created_at", { ascending: false })
+      .limit(75);
+    if (error) throw error;
+
+    notifications = data || [];
+    notificationsState = "ready";
+    renderNotificationCenter();
+    return true;
+  } catch (error) {
+    console.error("No fue posible cargar las notificaciones.", error);
+    if (!silent || notifications.length === 0) {
+      notifications = [];
+      notificationsState = "error";
+      renderNotificationCenter();
+    }
+    handlePotentialAuthError(error);
+    return false;
+  }
+}
+
+async function refreshCurrentProfile() {
+  if (!currentUser) return false;
+
+  try {
+    const { data: profile, error } = await supabase
+      .from("perfiles")
+      .select("user_id,numero_colaborador,nombre,correo,correo_verificado_at,rol,activo,requiere_cambio_password,password_changed_at")
+      .eq("user_id", currentUser.id)
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!profile || profile.activo !== true) {
+      await supabase.auth.signOut();
+      redirectToLogin("Tu perfil no está activo.");
+      return false;
+    }
+
+    const previousRole = currentProfile?.rol;
+    currentProfile = profile;
+    renderCurrentUser();
+    applyPermissions();
+    renderInventory();
+    renderNotificationCenter();
+    if (previousRole !== profile.rol) {
+      const roleRefreshes = [
+        cargarInventario({ silent: true }),
+        cargarNotificaciones({ silent: true })
+      ];
+      if (currentPermissions.manageUsers) roleRefreshes.push(cargarUsuarios({ silent: true }));
+      await Promise.all(roleRefreshes);
+    }
+    return true;
+  } catch (error) {
+    console.error("No fue posible sincronizar el perfil actual.", error);
+    handlePotentialAuthError(error);
+    return false;
+  }
+}
+
+async function refreshAllData({ silent = false } = {}) {
+  const tasks = [
+    cargarInventario({ silent }),
+    cargarMovimientos({ silent }),
+    cargarNotificaciones({ silent })
+  ];
+  if (currentPermissions.manageUsers) tasks.push(cargarUsuarios({ silent }));
+  const results = await Promise.all(tasks);
   return results.every(Boolean);
 }
 
@@ -942,7 +1274,7 @@ async function deactivateItem(id) {
     });
     if (error) throw error;
 
-    await refreshAllData();
+    await refreshAllData({ silent: true });
     showToast("Insumo dado de baja.");
   } catch (error) {
     console.error("No fue posible dar de baja el producto.", error);
@@ -975,7 +1307,7 @@ async function permanentlyDeleteItem(id) {
     if (error) throw error;
     if (!deletedProduct) throw new Error("producto_no_eliminado");
 
-    await refreshAllData();
+    await refreshAllData({ silent: true });
     showToast("Producto eliminado definitivamente.");
   } catch (error) {
     console.error("No fue posible eliminar físicamente el producto.", error);
@@ -1114,7 +1446,7 @@ stockOperationForm.addEventListener("submit", async event => {
 
     if (error) throw error;
 
-    await refreshAllData();
+    await refreshAllData({ silent: true });
     completed = true;
     const successMessages = {
       entrada: "Entrada registrada.",
@@ -1203,12 +1535,16 @@ itemForm.addEventListener("submit", async event => {
       if (!insertedProduct) throw new Error("producto_no_insertado");
     }
 
-    await cargarInventario();
+    await cargarInventario({ silent: true });
     modalBackdrop.hidden = true;
     showToast(id ? "Cambios guardados." : "Insumo agregado.");
   } catch (error) {
     console.error("No fue posible guardar el producto.", error);
-    if (!handlePotentialAuthError(error)) showToast("No fue posible guardar el insumo.");
+    if (String(error?.code || "") === "23505") {
+      showToast("Ese código ya fue registrado por otro usuario.");
+    } else if (!handlePotentialAuthError(error)) {
+      showToast("No fue posible guardar el insumo.");
+    }
   } finally {
     setSaveBusy(false);
   }
@@ -1221,7 +1557,7 @@ userForm.addEventListener("submit", async event => {
   const userId = userIdInput.value;
   const employeeNumber = userEmployeeNumberInput.value.trim();
   const fullName = userFullNameInput.value.trim();
-  const password = userPasswordInput.value;
+  const email = userEmailInput.value.trim().toLowerCase();
 
   if (!/^\d{1,20}$/.test(employeeNumber)) {
     showToast("El número de colaborador debe contener únicamente números.");
@@ -1230,6 +1566,11 @@ userForm.addEventListener("submit", async event => {
 
   if (!fullName) {
     showToast("Ingresa el nombre completo del usuario.");
+    return;
+  }
+
+  if (!userEmailInput.validity.valid || !email) {
+    showToast("Ingresa un correo personal válido.");
     return;
   }
 
@@ -1248,8 +1589,12 @@ userForm.addEventListener("submit", async event => {
     return;
   }
 
-  if ((!userId || password) && password.length < 6) {
-    showToast("La contraseña debe tener al menos 6 caracteres.");
+  const duplicateEmail = users.find(user => (
+    user.user_id !== userId
+    && String(user.correo || "").trim().toLowerCase() === email
+  ));
+  if (duplicateEmail) {
+    showToast("Ese correo ya está asociado con otro usuario.");
     return;
   }
 
@@ -1258,11 +1603,11 @@ userForm.addEventListener("submit", async event => {
     user_id: userId || undefined,
     numero_colaborador: employeeNumber,
     nombre: fullName,
+    correo: email,
     rol: userRoleInput.value,
     activo: userActiveInput.checked
   };
 
-  if (password) payload.password = password;
   setUserSaveBusy(true);
 
   try {
@@ -1273,9 +1618,11 @@ userForm.addEventListener("submit", async event => {
       renderCurrentUser();
     }
 
-    await cargarUsuarios();
+    await cargarUsuarios({ silent: true });
     userModalBackdrop.hidden = true;
-    showToast(userId ? "Usuario actualizado." : "Usuario creado.");
+    showToast(userId
+      ? "Usuario actualizado."
+      : "Usuario creado. Sus credenciales fueron enviadas por correo.");
   } catch (error) {
     console.error("No fue posible guardar el usuario.", error);
     if (!handlePotentialAuthError(error)) {
@@ -1320,31 +1667,45 @@ notificationsBtn.addEventListener("click", event => {
   event.stopPropagation();
   setNotificationsOpen(!notificationsOpen);
 });
-markNotificationsReadBtn.addEventListener("click", () => {
-  getInventoryNotifications().forEach(notification => readNotificationIds.add(notification.id));
+markNotificationsReadBtn.addEventListener("click", async () => {
+  const visibleNotifications = getVisibleNotifications();
+  visibleNotifications
+    .filter(notification => notification.source === "stock")
+    .forEach(notification => readNotificationIds.add(notification.id));
+
+  const databaseIds = visibleNotifications
+    .filter(notification => notification.source === "database" && !notification.read)
+    .map(notification => notification.databaseId);
+
+  markNotificationsReadBtn.disabled = true;
+  try {
+    if (databaseIds.length) await markDatabaseNotifications(databaseIds);
+    const readAt = new Date().toISOString();
+    notifications.forEach(notification => {
+      if (databaseIds.includes(Number(notification.id))) notification.leida_at = readAt;
+    });
+  } catch (error) {
+    console.error("No fue posible marcar las notificaciones como leídas.", error);
+    showToast("No fue posible actualizar las notificaciones.");
+  }
   renderNotificationCenter();
 });
 notificationsList.addEventListener("click", event => {
-  const notification = event.target.closest("[data-notification-id]");
-  if (!notification) return;
-  readNotificationIds.add(notification.dataset.notificationId);
-  renderNotificationCenter();
-  openAlertsFromNotifications();
+  const button = event.target.closest("[data-notification-id]");
+  if (!button) return;
+  const notification = getVisibleNotifications()
+    .find(item => item.id === button.dataset.notificationId);
+  openNotification(notification);
 });
-viewAlertsBtn.addEventListener("click", openAlertsFromNotifications);
+viewAlertsBtn.addEventListener("click", openNotificationFooter);
+changePasswordBtn.addEventListener("click", () => openPasswordChangeModal(false));
 addUserBtn.addEventListener("click", () => openUserModal());
 responsiveAddUserBtn.addEventListener("click", () => openUserModal());
 closeUserModalBtn.addEventListener("click", closeUserModal);
 cancelUserBtn.addEventListener("click", closeUserModal);
+closePasswordChangeBtn.addEventListener("click", closePasswordChangeModal);
+cancelPasswordChangeBtn.addEventListener("click", closePasswordChangeModal);
 userSearchInput.addEventListener("input", renderUsers);
-refreshUsersBtn.addEventListener("click", async () => {
-  refreshUsersBtn.disabled = true;
-  refreshUsersBtn.textContent = "Actualizando...";
-  const success = await cargarUsuarios();
-  refreshUsersBtn.disabled = false;
-  refreshUsersBtn.textContent = "Actualizar usuarios";
-  showToast(success ? "Usuarios actualizados." : "No fue posible actualizar los usuarios.");
-});
 
 modalBackdrop.addEventListener("click", event => {
   if (event.target === modalBackdrop) closeModal();
@@ -1352,6 +1713,10 @@ modalBackdrop.addEventListener("click", event => {
 
 userModalBackdrop.addEventListener("click", event => {
   if (event.target === userModalBackdrop) closeUserModal();
+});
+
+passwordChangeBackdrop.addEventListener("click", event => {
+  if (event.target === passwordChangeBackdrop) closePasswordChangeModal();
 });
 
 stockOperationPanel.addEventListener("click", event => {
@@ -1371,6 +1736,7 @@ document.addEventListener("click", event => {
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !modalBackdrop.hidden) closeModal();
   if (event.key === "Escape" && !userModalBackdrop.hidden) closeUserModal();
+  if (event.key === "Escape" && !passwordChangeBackdrop.hidden) closePasswordChangeModal();
   if (event.key === "Escape" && !stockOperationPanel.hidden) closeStockOperation();
   if (event.key === "Escape" && !confirmationBackdrop.hidden) resolveConfirmation(false);
   if (event.key === "Escape" && notificationsOpen) setNotificationsOpen(false, true);
@@ -1400,19 +1766,10 @@ document.querySelectorAll(".nav-item").forEach(button => {
 
     document.getElementById("pageTitle").textContent = titles[view];
     updateContextualActions(view);
-    if (view === "movimientos" && currentUser) cargarMovimientos();
+    if (view === "movimientos" && movementsState === "idle") cargarMovimientos();
     if (view === "alertas") renderAlerts();
-    if (view === "usuarios") cargarUsuarios();
+    if (view === "usuarios" && usersState === "idle") cargarUsuarios();
   });
-});
-
-refreshDataBtn.addEventListener("click", async () => {
-  refreshDataBtn.disabled = true;
-  refreshDataBtn.textContent = "Actualizando...";
-  const success = await refreshAllData();
-  refreshDataBtn.disabled = false;
-  refreshDataBtn.textContent = "Actualizar datos";
-  showToast(success ? "Datos actualizados." : "No fue posible actualizar todos los datos.");
 });
 
 function formatRole(role) {
@@ -1528,6 +1885,7 @@ logoutBtn.addEventListener("click", async () => {
   });
 
   try {
+    await removeRealtimeChannel();
     const [{ error }] = await Promise.all([
       supabase.auth.signOut(),
       minimumDisplayTime
@@ -1544,6 +1902,107 @@ logoutBtn.addEventListener("click", async () => {
 supabase.auth.onAuthStateChange(event => {
   if (event === "SIGNED_OUT" && !authRedirecting) redirectToLogin("Sesión expirada.");
 });
+
+function scheduleRealtimeSync(key, task, delay = 140) {
+  clearTimeout(realtimeSyncTimers.get(key));
+  realtimeSyncTimers.set(key, setTimeout(async () => {
+    realtimeSyncTimers.delete(key);
+    try {
+      await task();
+    } catch (error) {
+      console.error(`No fue posible sincronizar ${key}.`, error);
+    }
+  }, delay));
+}
+
+function scheduleInventorySync() {
+  scheduleRealtimeSync("inventario", () => cargarInventario({ silent: true }));
+}
+
+function scheduleMovementsSync() {
+  scheduleRealtimeSync("movimientos", () => cargarMovimientos({ silent: true }));
+}
+
+function scheduleUsersSync() {
+  if (!currentPermissions.manageUsers) return;
+  scheduleRealtimeSync("usuarios", () => cargarUsuarios({ silent: true }));
+}
+
+function scheduleNotificationsSync() {
+  scheduleRealtimeSync("notificaciones", () => cargarNotificaciones({ silent: true }));
+}
+
+function handleRealtimeInvalidation(payload) {
+  const entity = String(payload?.new?.entidad || "").toLowerCase();
+  if (entity === "productos") scheduleInventorySync();
+  if (entity === "movimientos") scheduleMovementsSync();
+  if (entity === "perfiles") scheduleUsersSync();
+  if (entity === "perfil_actual") {
+    scheduleRealtimeSync("perfil-actual", refreshCurrentProfile, 80);
+  }
+}
+
+async function removeRealtimeChannel() {
+  realtimeSyncTimers.forEach(timer => clearTimeout(timer));
+  realtimeSyncTimers.clear();
+  if (!realtimeChannel) return;
+
+  const channel = realtimeChannel;
+  realtimeChannel = null;
+  try {
+    await supabase.removeChannel(channel);
+  } catch (error) {
+    console.error("No fue posible cerrar el canal Realtime.", error);
+  }
+}
+
+function initializeRealtimeSubscriptions() {
+  if (!currentUser || realtimeChannel) return;
+
+  setRealtimeStatus("connecting", "Conectando…");
+  realtimeChannel = supabase
+    .channel(`inventario-tiempo-real-${currentUser.id}`)
+    .on("postgres_changes", {
+      event: "INSERT",
+      schema: "public",
+      table: "eventos_tiempo_real"
+    }, handleRealtimeInvalidation)
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "notificaciones",
+      filter: `destinatario_user_id=eq.${currentUser.id}`
+    }, scheduleNotificationsSync)
+    .subscribe(status => {
+      if (status === "SUBSCRIBED") {
+        const reconnecting = realtimeWasSubscribed;
+        realtimeWasSubscribed = true;
+        setRealtimeStatus("live", "En tiempo real");
+        scheduleRealtimeSync(
+          reconnecting ? "reconexion" : "suscripcion-inicial",
+          () => refreshAllData({ silent: true }),
+          reconnecting ? 60 : 220
+        );
+        return;
+      }
+
+      if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) && !authRedirecting) {
+        setRealtimeStatus("reconnecting", "Reconectando…");
+      }
+    });
+}
+
+function resyncVisibleApplication() {
+  if (!currentUser || authRedirecting || document.hidden) return;
+  setRealtimeStatus(realtimeWasSubscribed ? "live" : "connecting", realtimeWasSubscribed
+    ? "En tiempo real"
+    : "Conectando…");
+  scheduleRealtimeSync("retorno", () => refreshAllData({ silent: true }), 80);
+  scheduleRealtimeSync("perfil-retorno", refreshCurrentProfile, 80);
+}
+
+document.addEventListener("visibilitychange", resyncVisibleApplication);
+window.addEventListener("online", resyncVisibleApplication);
 
 async function initializeApplication() {
   appBootstrapStatus.setAttribute("aria-label", "Verificando sesión");
@@ -1565,7 +2024,7 @@ async function initializeApplication() {
 
     const { data: profile, error: profileError } = await supabase
       .from("perfiles")
-      .select("user_id,numero_colaborador,nombre,rol,activo")
+      .select("user_id,numero_colaborador,nombre,correo,correo_verificado_at,rol,activo,requiere_cambio_password,password_changed_at")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -1588,19 +2047,17 @@ async function initializeApplication() {
     currentProfile = profile;
     renderCurrentUser();
     applyPermissions();
+    initializeRealtimeSubscriptions();
     await refreshAllData();
     revealApplication();
+    if (profile.requiere_cambio_password === true) {
+      setTimeout(() => openPasswordChangeModal(true), 520);
+    }
   } catch (error) {
     console.error("No fue posible iniciar la aplicación.", error);
     showFatalError("No fue posible cargar el inventario.");
   }
 }
-
-document.getElementById("currentDate").textContent = new Intl.DateTimeFormat("es-MX", {
-  day: "2-digit",
-  month: "short",
-  year: "numeric"
-}).format(new Date());
 
 const responsiveLayout = window.matchMedia("(max-width: 980px)");
 let responsiveUiFrame;
@@ -1655,10 +2112,34 @@ function queueResponsiveUiUpdate() {
   responsiveUiFrame = requestAnimationFrame(updateResponsiveUi);
 }
 
+function closeNotificationsFromPageGesture(event) {
+  if (!notificationsOpen) return;
+
+  const target = event.target;
+  if (target instanceof Element && target.closest(".notification-panel")) return;
+
+  setNotificationsOpen(false);
+}
+
 window.addEventListener("scroll", () => {
   if (notificationsOpen) setNotificationsOpen(false);
   queueResponsiveUiUpdate();
 }, { passive: true });
+document.addEventListener("scroll", closeNotificationsFromPageGesture, {
+  capture: true,
+  passive: true
+});
+document.addEventListener("touchmove", closeNotificationsFromPageGesture, {
+  capture: true,
+  passive: true
+});
+document.addEventListener("wheel", closeNotificationsFromPageGesture, {
+  capture: true,
+  passive: true
+});
+window.visualViewport?.addEventListener("scroll", () => {
+  if (notificationsOpen) setNotificationsOpen(false);
+});
 window.addEventListener("resize", queueResponsiveUiUpdate);
 responsiveLayout.addEventListener("change", queueResponsiveUiUpdate);
 
