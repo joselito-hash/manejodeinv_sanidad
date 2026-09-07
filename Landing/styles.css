@@ -485,9 +485,10 @@ h2 {
 .notification-panel {
   position: absolute;
   top: calc(100% + 12px);
-  left: 50%;
+  right: 0;
+  left: 0;
   z-index: 40;
-  width: min(420px, calc(100vw - 32px));
+  width: 100%;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -495,7 +496,7 @@ h2 {
   box-shadow: 0 24px 60px rgba(39, 51, 59, 0.2);
   opacity: 0;
   visibility: hidden;
-  transform: translate(-50%, -8px) scale(0.985);
+  transform: translateY(-8px) scale(0.985);
   transform-origin: center top;
   pointer-events: none;
   transition:
@@ -507,7 +508,7 @@ h2 {
 .notification-panel.is-open {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, 0) scale(1);
+  transform: translateY(0) scale(1);
   pointer-events: auto;
   transition-delay: 0s;
 }
