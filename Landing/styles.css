@@ -189,7 +189,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -199,7 +200,8 @@ button {
 
 button:disabled,
 input:disabled,
-select:disabled {
+select:disabled,
+textarea:disabled {
   cursor: not-allowed;
   opacity: 0.62;
 }
@@ -499,6 +501,10 @@ h2 {
   margin-bottom: 18px;
 }
 
+.stats-grid.without-value {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .stat-card {
   min-height: 132px;
   padding: 20px;
@@ -719,6 +725,16 @@ tr:hover td {
   color: var(--danger);
 }
 
+.row-btn.movement-action {
+  color: var(--blue-dark);
+  background: rgba(220, 231, 237, 0.48);
+}
+
+.row-btn.movement-action.exit {
+  color: #78674f;
+  background: rgba(238, 232, 223, 0.72);
+}
+
 .user-self-label {
   display: inline-block;
   margin: 0;
@@ -746,6 +762,105 @@ tr:hover td {
 
 .role-readonly .actions-column {
   display: none !important;
+}
+
+.stock-operation-panel {
+  margin: 18px 22px 0;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 180ms ease, transform 220ms ease;
+}
+
+.stock-operation-panel[hidden] {
+  display: none;
+}
+
+.stock-operation-panel.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.stock-operation-card {
+  padding: 18px;
+  border: 1px solid rgba(111, 143, 164, 0.32);
+  border-radius: 17px;
+  background:
+    linear-gradient(135deg, rgba(220, 231, 237, 0.55), rgba(251, 249, 244, 0.94));
+}
+
+.stock-operation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stock-operation-header h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.stock-operation-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(160px, 0.55fr) minmax(240px, 1.15fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.stock-operation-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.stock-operation-form label > span,
+.stock-operation-product span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stock-operation-form input,
+.stock-operation-form textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  outline: 0;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.stock-operation-form textarea {
+  resize: vertical;
+}
+
+.stock-operation-form input:focus,
+.stock-operation-form textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(111, 143, 164, 0.12);
+}
+
+.stock-operation-product {
+  min-height: 64px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.stock-operation-product strong {
+  font-size: 13px;
+}
+
+.stock-operation-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 2px;
 }
 
 .panel-footer {
@@ -902,6 +1017,13 @@ tr:hover td {
   font-size: 12px;
 }
 
+.movement-item .movement-responsible {
+  display: block;
+  margin: 6px 0 3px;
+  color: var(--blue-dark);
+  font-weight: 600;
+}
+
 .movement-type {
   align-self: center;
   padding: 6px 10px;
@@ -1002,6 +1124,9 @@ tr:hover td {
     transition-delay: 0s;
   }
   .responsive-add-action .primary-btn { width: 100%; }
+  .responsive-action-visible .main-content {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
   .brand { flex: 0 0 auto; margin: 0; }
   .brand-mark { width: 34px; height: 34px; border-radius: 10px; }
   .nav { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
@@ -1026,8 +1151,18 @@ tr:hover td {
   h1 { font-size: 30px; }
   .subtitle { line-height: 1.5; }
   .topbar-action-row { flex-direction: column; align-items: stretch; }
-  .stats-grid, .alerts-grid { grid-template-columns: 1fr; }
-  .stat-card { min-height: 112px; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stats-grid.without-value { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats-grid.without-value .stat-card:nth-child(3) { grid-column: 1 / -1; }
+  .alerts-grid { grid-template-columns: 1fr; }
+  .stat-card {
+    min-height: 94px;
+    padding: 14px;
+    border-radius: 15px;
+  }
+  .stat-label { margin-bottom: 10px; font-size: 10px; }
+  .stat-value { margin-bottom: 3px; font-size: 24px; }
+  .stat-note { font-size: 10px; line-height: 1.3; }
   .panel { border-radius: 16px; }
   .panel-header { padding: 18px 16px; }
   .users-panel-header { align-items: stretch; flex-direction: column; }
@@ -1067,8 +1202,11 @@ tr:hover td {
   .users-table tr {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 3px;
-    padding: 11px;
+    gap: 2px;
+    padding: 10px;
+    border-radius: 16px;
+    background: linear-gradient(145deg, #fff, rgba(251, 249, 244, 0.92));
+    box-shadow: 0 7px 20px rgba(46, 56, 61, 0.045);
   }
 
   .inventory-table td,
@@ -1079,8 +1217,8 @@ tr:hover td {
     flex-direction: column;
     align-items: flex-start;
     justify-content: center;
-    gap: 5px;
-    padding: 8px 9px;
+    gap: 4px;
+    padding: 7px 8px;
     border: 0;
     text-align: left;
   }
@@ -1114,6 +1252,7 @@ tr:hover td {
 
   .inventory-table .row-actions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
   }
 
   .users-table .row-actions {
@@ -1130,7 +1269,24 @@ tr:hover td {
     gap: 5px;
   }
 
-  .panel-footer { align-items: flex-start; flex-direction: column; padding: 14px 16px; }
+  .panel-footer {
+    align-items: center;
+    flex-direction: row;
+    padding: 12px 14px;
+  }
+  .panel-footer .text-btn {
+    min-height: 38px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--blue-soft);
+    white-space: nowrap;
+  }
+  .stock-operation-panel { margin: 12px 12px 0; }
+  .stock-operation-card { padding: 14px; border-radius: 15px; }
+  .stock-operation-form { grid-template-columns: minmax(0, 0.7fr) minmax(0, 1fr); }
+  .stock-operation-product,
+  .stock-operation-actions { grid-column: 1 / -1; }
+  .stock-operation-product { min-height: 56px; }
   .movement-item { grid-template-columns: 1fr; }
   .movement-type { justify-self: start; }
   .modal-backdrop { align-items: end; padding: 10px; }
@@ -1148,22 +1304,26 @@ tr:hover td {
   .main-content { padding-left: 10px; padding-right: 10px; }
   h1 { font-size: 27px; }
   .date-box, #addItemBtn { width: 100%; }
-  .stat-card { padding: 17px; }
-  .stat-value { font-size: 26px; }
+  .stat-card { min-height: 88px; padding: 12px; }
+  .stat-value { font-size: 22px; }
   .table-wrapper { padding: 8px; }
   td { grid-template-columns: 96px minmax(0,1fr); gap: 8px; padding: 10px; font-size: 12px; }
   .row-actions { grid-template-columns: repeat(2,1fr); }
   .inventory-table .row-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inventory-table tr, .users-table tr { padding: 9px; }
   .inventory-table td, .users-table td { padding: 7px; }
-  .row-btn { min-height: 40px; }
+  .row-btn { min-height: 38px; padding: 7px 5px; font-size: 11px; }
+  .stock-operation-form { grid-template-columns: 1fr; }
+  .stock-operation-form > * { grid-column: 1; }
+  .stock-operation-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .form-actions { grid-template-columns: 1fr; }
   .panel-header h2 { font-size: 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .responsive-add-action,
-  .responsive-add-action.is-visible {
+  .responsive-add-action.is-visible,
+  .stock-operation-panel {
     transition: none;
   }
 

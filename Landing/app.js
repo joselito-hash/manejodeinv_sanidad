@@ -15,7 +15,8 @@ const ROLE_PERMISSIONS = {
     adjustStock: true,
     deactivateProducts: true,
     deleteProducts: true,
-    manageUsers: true
+    manageUsers: true,
+    viewInventoryValue: true
   },
   sanidad: {
     addProducts: true,
@@ -24,7 +25,8 @@ const ROLE_PERMISSIONS = {
     adjustStock: true,
     deactivateProducts: true,
     deleteProducts: false,
-    manageUsers: false
+    manageUsers: false,
+    viewInventoryValue: false
   },
   supervisor: {
     addProducts: true,
@@ -33,7 +35,8 @@ const ROLE_PERMISSIONS = {
     adjustStock: true,
     deactivateProducts: true,
     deleteProducts: false,
-    manageUsers: false
+    manageUsers: false,
+    viewInventoryValue: false
   },
   consulta: {
     addProducts: false,
@@ -42,7 +45,8 @@ const ROLE_PERMISSIONS = {
     adjustStock: false,
     deactivateProducts: false,
     deleteProducts: false,
-    manageUsers: false
+    manageUsers: false,
+    viewInventoryValue: false
   }
 };
 
@@ -53,7 +57,8 @@ const NO_PERMISSIONS = Object.freeze({
   adjustStock: false,
   deactivateProducts: false,
   deleteProducts: false,
-  manageUsers: false
+  manageUsers: false,
+  viewInventoryValue: false
 });
 
 let inventory = [];
@@ -77,6 +82,8 @@ const totalItems = document.getElementById("totalItems");
 const lowStockCount = document.getElementById("lowStockCount");
 const outStockCount = document.getElementById("outStockCount");
 const inventoryValue = document.getElementById("inventoryValue");
+const inventoryValueCard = document.getElementById("inventoryValueCard");
+const statsGrid = document.querySelector(".stats-grid");
 const resultCount = document.getElementById("resultCount");
 const movementList = document.getElementById("movementList");
 const alertsList = document.getElementById("alertsList");
@@ -103,6 +110,20 @@ const saveItemBtn = document.getElementById("saveItemBtn");
 const stockInput = document.getElementById("stock");
 const stockEditHelp = document.getElementById("stockEditHelp");
 const toast = document.getElementById("toast");
+
+const stockOperationPanel = document.getElementById("stockOperationPanel");
+const stockOperationForm = document.getElementById("stockOperationForm");
+const stockOperationProductId = document.getElementById("stockOperationProductId");
+const stockOperationType = document.getElementById("stockOperationType");
+const stockOperationTitle = document.getElementById("stockOperationTitle");
+const stockOperationProductName = document.getElementById("stockOperationProductName");
+const stockOperationCurrentStock = document.getElementById("stockOperationCurrentStock");
+const stockOperationQuantityLabel = document.getElementById("stockOperationQuantityLabel");
+const stockOperationQuantity = document.getElementById("stockOperationQuantity");
+const stockOperationObservation = document.getElementById("stockOperationObservation");
+const closeStockOperationBtn = document.getElementById("closeStockOperationBtn");
+const cancelStockOperationBtn = document.getElementById("cancelStockOperationBtn");
+const saveStockOperationBtn = document.getElementById("saveStockOperationBtn");
 
 const currentUserName = document.getElementById("currentUserName");
 const currentUserNumber = document.getElementById("currentUserNumber");
@@ -200,8 +221,9 @@ function mapMovement(row) {
     salida: "Salida",
     ajuste: "Ajuste"
   };
-  const productName = product?.nombre || `Producto ${row.producto_id}`;
-  const unit = product?.unidad ? ` ${product.unidad}` : "";
+  const productName = row.producto_nombre || product?.nombre || `Producto ${row.producto_id}`;
+  const productUnit = row.producto_unidad || product?.unidad || "";
+  const unit = productUnit ? ` ${productUnit}` : "";
   const observation = row.observaciones ? ` · ${row.observaciones}` : "";
   const movementDetail = type === "ajuste"
     ? `${formatNumber(row.existencia_anterior)}${unit} → ${formatNumber(row.existencia_nueva)}${unit}`
@@ -211,7 +233,9 @@ function mapMovement(row) {
     text: labels[type] || "Movimiento de inventario",
     detail: `${productName} · ${movementDetail}${observation}`,
     type: typeLabels[type] || "Movimiento",
-    date: row.created_at || new Date(0).toISOString()
+    date: row.created_at || new Date(0).toISOString(),
+    responsibleName: row.responsable_nombre || "Responsable no disponible",
+    responsibleNumber: row.responsable_numero_colaborador || ""
   };
 }
 
@@ -231,8 +255,8 @@ function renderProductActions(item) {
 
   if (currentPermissions.registerMovements) {
     buttons.push(`
-      <button type="button" class="row-btn" data-action="entry" data-id="${id}" title="Registrar entrada">＋</button>
-      <button type="button" class="row-btn" data-action="exit" data-id="${id}" title="Registrar salida">−</button>
+      <button type="button" class="row-btn movement-action entry" data-action="entry" data-id="${id}" title="Registrar entrada">+ Entrada</button>
+      <button type="button" class="row-btn movement-action exit" data-action="exit" data-id="${id}" title="Registrar salida">− Salida</button>
     `);
   }
 
@@ -268,11 +292,13 @@ function updateStats() {
   lowStockCount.textContent = inventory.filter(item => getStatus(item) === "low").length;
   outStockCount.textContent = inventory.filter(item => getStatus(item) === "out").length;
 
-  const totalValue = inventory.reduce((sum, item) => {
-    return sum + (Number(item.stock) * Number(item.cost || 0));
-  }, 0);
+  if (currentPermissions.viewInventoryValue) {
+    const totalValue = inventory.reduce((sum, item) => {
+      return sum + (Number(item.stock) * Number(item.cost || 0));
+    }, 0);
 
-  inventoryValue.textContent = formatCurrency(totalValue);
+    inventoryValue.textContent = formatCurrency(totalValue);
+  }
 }
 
 function renderInventory() {
@@ -348,6 +374,9 @@ function renderMovements() {
           <div>
             <strong>${escapeHTML(movement.text)}</strong>
             <span>${escapeHTML(movement.detail)}</span>
+            <span class="movement-responsible">
+              Responsable: ${escapeHTML(movement.responsibleName)}${movement.responsibleNumber ? ` · Colaborador ${escapeHTML(movement.responsibleNumber)}` : ""}
+            </span>
             <time>${new Intl.DateTimeFormat("es-MX", {
               dateStyle: "medium",
               timeStyle: "short"
@@ -569,12 +598,7 @@ async function cargarInventario() {
   renderInventory();
 
   try {
-    const { data, error } = await supabase
-      .from("productos")
-      .select("id,codigo,nombre,categoria,area,existencia,stock_minimo,unidad,costo,activo,created_at,updated_at")
-      .eq("activo", true)
-      .order("nombre", { ascending: true })
-      .order("codigo", { ascending: true });
+    const { data, error } = await supabase.rpc("listar_productos_activos");
 
     if (error) throw error;
 
@@ -597,21 +621,9 @@ async function cargarMovimientos() {
   renderMovements();
 
   try {
-    const { data, error } = await supabase
-      .from("movimientos")
-      .select(`
-        id,
-        producto_id,
-        tipo,
-        cantidad,
-        existencia_anterior,
-        existencia_nueva,
-        observaciones,
-        created_at,
-        productos (codigo,nombre,unidad)
-      `)
-      .order("created_at", { ascending: false })
-      .limit(100);
+    const { data, error } = await supabase.rpc("listar_movimientos", {
+      p_limite: 100
+    });
 
     if (error) throw error;
 
@@ -736,98 +748,154 @@ async function permanentlyDeleteItem(id) {
   }
 }
 
-async function adjustStock(id, delta) {
-  if (!currentPermissions.registerMovements || pendingStockOperations.has(String(id))) return;
+function openStockOperation(id, type) {
+  const isAdjustment = type === "ajuste";
+  const allowed = isAdjustment
+    ? currentPermissions.adjustStock
+    : currentPermissions.registerMovements;
+  if (!allowed || pendingStockOperations.has(String(id))) return;
 
   const item = inventory.find(product => product.id === String(id));
   if (!item) return;
 
-  const amount = Number(prompt(
-    delta > 0
-      ? `Cantidad a ingresar de ${item.name}:`
-      : `Cantidad a retirar de ${item.name}:`,
-    "1"
-  ));
+  clearTimeout(closeStockOperation.timer);
+  stockOperationForm.reset();
+  stockOperationProductId.value = item.id;
+  stockOperationType.value = type;
+  stockOperationProductName.textContent = item.name;
+  stockOperationCurrentStock.textContent = `Existencia actual: ${formatNumber(item.stock)} ${item.unit}`.trim();
 
-  if (!Number.isFinite(amount) || amount <= 0) return;
+  const titles = {
+    entrada: "Registrar entrada",
+    salida: "Registrar salida",
+    ajuste: "Ajustar existencia"
+  };
+  stockOperationTitle.textContent = titles[type] || "Registrar movimiento";
+  stockOperationQuantityLabel.textContent = isAdjustment ? "Nueva existencia" : "Cantidad";
+  stockOperationQuantity.min = isAdjustment ? "0" : "0.01";
+  stockOperationQuantity.value = isAdjustment ? String(item.stock) : "1";
+  saveStockOperationBtn.textContent = isAdjustment ? "Guardar ajuste" : titles[type];
 
-  if (delta < 0 && amount > Number(item.stock)) {
+  stockOperationPanel.hidden = false;
+  requestAnimationFrame(() => {
+    stockOperationPanel.classList.add("is-visible");
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    stockOperationPanel.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "center"
+    });
+    stockOperationQuantity.focus({ preventScroll: true });
+    stockOperationQuantity.select();
+  });
+}
+
+function closeStockOperation() {
+  if (saveStockOperationBtn.disabled) return;
+
+  stockOperationPanel.classList.remove("is-visible");
+  clearTimeout(closeStockOperation.timer);
+  closeStockOperation.timer = setTimeout(() => {
+    stockOperationPanel.hidden = true;
+    stockOperationForm.reset();
+  }, 190);
+}
+
+function setStockOperationBusy(isBusy, type = stockOperationType.value) {
+  stockOperationQuantity.disabled = isBusy;
+  stockOperationObservation.disabled = isBusy;
+  closeStockOperationBtn.disabled = isBusy;
+  cancelStockOperationBtn.disabled = isBusy;
+  saveStockOperationBtn.disabled = isBusy;
+
+  if (isBusy) {
+    saveStockOperationBtn.textContent = "Registrando...";
+  } else {
+    saveStockOperationBtn.textContent = type === "ajuste"
+      ? "Guardar ajuste"
+      : type === "entrada"
+        ? "Registrar entrada"
+        : "Registrar salida";
+  }
+}
+
+stockOperationForm.addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const id = stockOperationProductId.value;
+  const type = stockOperationType.value;
+  const isAdjustment = type === "ajuste";
+  const allowed = isAdjustment
+    ? currentPermissions.adjustStock
+    : currentPermissions.registerMovements;
+  if (!allowed || pendingStockOperations.has(id)) return;
+
+  const item = inventory.find(product => product.id === id);
+  if (!item) {
+    showToast("El insumo ya no está disponible.");
+    closeStockOperation();
+    return;
+  }
+
+  const amount = Number(stockOperationQuantity.value);
+  if (!Number.isFinite(amount) || (isAdjustment ? amount < 0 : amount <= 0)) {
+    showToast(isAdjustment
+      ? "Ingresa una existencia válida mayor o igual a cero."
+      : "Ingresa una cantidad mayor a cero.");
+    return;
+  }
+
+  if (type === "salida" && amount > Number(item.stock)) {
     showToast("La salida no puede dejar una existencia negativa.");
     return;
   }
 
-  pendingStockOperations.add(item.id);
-
-  try {
-    const { error } = await supabase.rpc("registrar_movimiento", {
-      p_producto_id: item.id,
-      p_tipo: delta > 0 ? "entrada" : "salida",
-      p_cantidad: amount,
-      p_observaciones: null
-    });
-
-    if (error) throw error;
-
-    await refreshAllData();
-    showToast(delta > 0 ? "Entrada registrada." : "Salida registrada.");
-  } catch (error) {
-    console.error("No fue posible registrar el movimiento.", error);
-    const insufficientStock = String(error?.message || "").includes("existencia_insuficiente");
-
-    if (insufficientStock) {
-      showToast("La salida no puede dejar una existencia negativa.");
-    } else if (!handlePotentialAuthError(error)) {
-      showToast("No fue posible registrar el movimiento.");
-    }
-  } finally {
-    pendingStockOperations.delete(item.id);
-  }
-}
-
-async function setExactStock(id) {
-  if (!currentPermissions.adjustStock || pendingStockOperations.has(String(id))) return;
-
-  const item = inventory.find(product => product.id === String(id));
-  if (!item) return;
-
-  const requestedStock = prompt(
-    `Nueva existencia para ${item.name}:`,
-    String(item.stock)
-  );
-  if (requestedStock === null) return;
-
-  const newStock = Number(requestedStock);
-  if (!Number.isFinite(newStock) || newStock < 0) {
-    showToast("Ingresa una existencia válida mayor o igual a cero.");
-    return;
-  }
-
-  if (newStock === Number(item.stock)) {
+  if (isAdjustment && amount === Number(item.stock)) {
     showToast("La existencia no cambió.");
     return;
   }
 
-  pendingStockOperations.add(item.id);
+  pendingStockOperations.add(id);
+  setStockOperationBusy(true, type);
+  let completed = false;
 
   try {
+    const observation = stockOperationObservation.value.trim()
+      || (isAdjustment ? "Ajuste manual de existencia" : null);
     const { error } = await supabase.rpc("registrar_movimiento", {
-      p_producto_id: item.id,
-      p_tipo: "ajuste",
-      p_cantidad: newStock,
-      p_observaciones: "Ajuste manual de existencia"
+      p_producto_id: id,
+      p_tipo: type,
+      p_cantidad: amount,
+      p_observaciones: observation
     });
 
     if (error) throw error;
 
     await refreshAllData();
-    showToast("Existencia ajustada correctamente.");
+    completed = true;
+    const successMessages = {
+      entrada: "Entrada registrada.",
+      salida: "Salida registrada.",
+      ajuste: "Existencia ajustada correctamente."
+    };
+    showToast(successMessages[type] || "Movimiento registrado.");
   } catch (error) {
-    console.error("No fue posible ajustar la existencia.", error);
-    if (!handlePotentialAuthError(error)) showToast("No fue posible ajustar la existencia.");
+    console.error("No fue posible registrar el movimiento.", error);
+    const errorMessage = String(error?.message || "");
+
+    if (errorMessage.includes("existencia_insuficiente")) {
+      showToast("La salida no puede dejar una existencia negativa.");
+    } else if (!handlePotentialAuthError(error)) {
+      showToast(isAdjustment
+        ? "No fue posible ajustar la existencia."
+        : "No fue posible registrar el movimiento.");
+    }
   } finally {
-    pendingStockOperations.delete(item.id);
+    pendingStockOperations.delete(id);
+    setStockOperationBusy(false, type);
   }
-}
+
+  if (completed) closeStockOperation();
+});
 
 itemForm.addEventListener("submit", async event => {
   event.preventDefault();
@@ -980,9 +1048,9 @@ inventoryBody.addEventListener("click", event => {
   if (!button) return;
 
   const { action, id } = button.dataset;
-  if (action === "entry") adjustStock(id, 1);
-  if (action === "exit") adjustStock(id, -1);
-  if (action === "adjust") setExactStock(id);
+  if (action === "entry") openStockOperation(id, "entrada");
+  if (action === "exit") openStockOperation(id, "salida");
+  if (action === "adjust") openStockOperation(id, "ajuste");
   if (action === "edit") editItem(id);
   if (action === "deactivate") deactivateItem(id);
   if (action === "delete") permanentlyDeleteItem(id);
@@ -1001,6 +1069,8 @@ addItemBtn.addEventListener("click", () => openModal());
 responsiveAddItemBtn.addEventListener("click", () => openModal());
 closeModalBtn.addEventListener("click", closeModal);
 cancelBtn.addEventListener("click", closeModal);
+closeStockOperationBtn.addEventListener("click", closeStockOperation);
+cancelStockOperationBtn.addEventListener("click", closeStockOperation);
 addUserBtn.addEventListener("click", () => openUserModal());
 responsiveAddUserBtn.addEventListener("click", () => openUserModal());
 closeUserModalBtn.addEventListener("click", closeUserModal);
@@ -1026,6 +1096,7 @@ userModalBackdrop.addEventListener("click", event => {
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !modalBackdrop.hidden) closeModal();
   if (event.key === "Escape" && !userModalBackdrop.hidden) closeUserModal();
+  if (event.key === "Escape" && !stockOperationPanel.hidden) closeStockOperation();
 });
 
 searchInput.addEventListener("input", renderInventory);
@@ -1097,6 +1168,8 @@ function applyPermissions() {
 
   document.body.classList.toggle("role-readonly", !hasProductActions);
   usersNavItem.classList.toggle("permission-hidden", !currentPermissions.manageUsers);
+  inventoryValueCard.hidden = !currentPermissions.viewInventoryValue;
+  statsGrid.classList.toggle("without-value", !currentPermissions.viewInventoryValue);
 
   const activeView = document.querySelector(".nav-item.active")?.dataset.view || "inventario";
   updateContextualActions(activeView);
@@ -1261,6 +1334,7 @@ function updateResponsiveUi() {
   responsiveUserAddAction.classList.remove("is-visible");
   responsiveUserAddAction.setAttribute("aria-hidden", "true");
   responsiveAddUserBtn.tabIndex = -1;
+  document.body.classList.remove("responsive-action-visible");
 
   if (!responsiveLayout.matches) {
     document.documentElement.style.removeProperty("--responsive-nav-height");
@@ -1285,6 +1359,7 @@ function updateResponsiveUi() {
   floatingAction.classList.toggle("is-visible", shouldShow);
   floatingAction.setAttribute("aria-hidden", String(!shouldShow));
   floatingButton.tabIndex = shouldShow ? 0 : -1;
+  document.body.classList.toggle("responsive-action-visible", shouldShow);
 }
 
 function queueResponsiveUiUpdate() {
