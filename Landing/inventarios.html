@@ -46,6 +46,9 @@
         <button class="nav-item" data-view="alertas">
           <span>Alertas</span>
         </button>
+        <button id="usersNavItem" class="nav-item permission-hidden" data-view="usuarios">
+          <span>Usuarios</span>
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -197,6 +200,46 @@
           <div id="alertsList" class="alerts-grid"></div>
         </section>
       </section>
+
+      <section id="usuariosView" class="view">
+        <section class="panel">
+          <div class="panel-header users-panel-header">
+            <div>
+              <p class="eyebrow">ADMINISTRACIÓN</p>
+              <h2>Usuarios del sistema</h2>
+              <p class="panel-description">Gestiona accesos, roles y estado de los colaboradores.</p>
+            </div>
+
+            <div class="toolbar">
+              <label class="search-box">
+                <span>⌕</span>
+                <input id="userSearchInput" type="search" placeholder="Buscar usuario o colaborador..." />
+              </label>
+              <button id="addUserBtn" class="primary-btn" type="button">+ Nuevo usuario</button>
+            </div>
+          </div>
+
+          <div class="table-wrapper">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Colaborador</th>
+                  <th>Nombre</th>
+                  <th>Rol</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="usersBody"></tbody>
+            </table>
+          </div>
+
+          <div class="panel-footer">
+            <span id="usersResultCount">0 usuarios</span>
+            <button id="refreshUsersBtn" class="text-btn" type="button">Actualizar usuarios</button>
+          </div>
+        </section>
+      </section>
     </main>
   </div>
 
@@ -264,6 +307,58 @@
         <div class="form-actions">
           <button type="button" id="cancelBtn" class="secondary-btn">Cancelar</button>
           <button id="saveItemBtn" type="submit" class="primary-btn">Guardar insumo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="userModalBackdrop" class="modal-backdrop" hidden>
+    <div class="modal user-modal" role="dialog" aria-modal="true" aria-labelledby="userModalTitle">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">ACCESO</p>
+          <h2 id="userModalTitle">Nuevo usuario</h2>
+        </div>
+        <button id="closeUserModalBtn" class="icon-btn" type="button" aria-label="Cerrar">×</button>
+      </div>
+
+      <form id="userForm" class="form-grid">
+        <input type="hidden" id="userId" />
+
+        <label>
+          <span>Número de colaborador</span>
+          <input id="userEmployeeNumber" required inputmode="numeric" pattern="[0-9]+" maxlength="20" placeholder="Ej. 102458" />
+        </label>
+
+        <label>
+          <span>Nombre completo</span>
+          <input id="userFullName" required maxlength="150" placeholder="Ej. José Hernández" />
+        </label>
+
+        <label>
+          <span>Rol</span>
+          <select id="userRole" required>
+            <option value="consulta">Consulta</option>
+            <option value="sanidad">Sanidad</option>
+            <option value="supervisor">Supervisor</option>
+            <option value="administrador">Administrador</option>
+          </select>
+        </label>
+
+        <label>
+          <span id="userPasswordLabel">Contraseña temporal</span>
+          <input id="userPassword" type="password" minlength="6" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
+          <small id="userPasswordHelp" class="field-help">El usuario podrá iniciar sesión con esta contraseña.</small>
+        </label>
+
+        <label class="user-active-control">
+          <input id="userActive" type="checkbox" checked />
+          <span>Usuario activo</span>
+        </label>
+
+        <div class="form-actions">
+          <button type="button" id="cancelUserBtn" class="secondary-btn">Cancelar</button>
+          <button id="saveUserBtn" type="submit" class="primary-btn">Guardar usuario</button>
         </div>
       </form>
     </div>

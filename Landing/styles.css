@@ -547,6 +547,17 @@ h2 {
   border-bottom: 1px solid var(--line);
 }
 
+.panel-description {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.users-panel-header {
+  align-items: center;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -606,6 +617,10 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 980px;
+}
+
+.users-table {
+  min-width: 720px;
 }
 
 th,
@@ -704,6 +719,16 @@ tr:hover td {
   color: var(--danger);
 }
 
+.user-self-label {
+  display: inline-block;
+  margin-left: 7px;
+  color: var(--blue-dark);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .permission-hidden {
   display: none !important;
 }
@@ -771,6 +796,26 @@ tr:hover td {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.form-grid .user-active-control {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.form-grid .user-active-control input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--blue-dark);
+}
+
+.form-grid .user-active-control span {
+  color: var(--text);
 }
 
 .field-help {
@@ -974,11 +1019,15 @@ tr:hover td {
   .stat-card { min-height: 112px; }
   .panel { border-radius: 16px; }
   .panel-header { padding: 18px 16px; }
+  .users-panel-header { align-items: stretch; flex-direction: column; }
+  .users-panel-header .toolbar { width: 100%; }
+  .users-panel-header #addUserBtn { width: 100%; }
   .toolbar { display: grid; grid-template-columns: 1fr; }
   .search-box, .select-control { width: 100%; min-width: 0; }
   .table-wrapper { overflow: visible; padding: 12px; }
   table, tbody, tr, td { display: block; width: 100%; }
   table { min-width: 0; }
+  .users-table { min-width: 0; }
   thead { display: none; }
   tbody { display: grid; gap: 12px; }
   tr {
@@ -999,6 +1048,7 @@ tr:hover td {
   td:nth-child(9) { display: block; padding: 10px 12px 12px; }
   td:nth-child(9)::before { display: none; }
   .row-actions { justify-content: stretch; display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }
+  .users-table .row-actions { grid-template-columns: repeat(2,1fr); }
   .row-btn { min-height: 38px; background: #f5f1ea; }
   .badge { justify-self: end; }
   .panel-footer { align-items: flex-start; flex-direction: column; padding: 14px 16px; }

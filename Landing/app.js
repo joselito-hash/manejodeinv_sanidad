@@ -58,11 +58,13 @@ const NO_PERMISSIONS = Object.freeze({
 
 let inventory = [];
 let movements = [];
+let users = [];
 let currentUser = null;
 let currentProfile = null;
 let currentPermissions = NO_PERMISSIONS;
 let inventoryState = "loading";
 let movementsState = "loading";
+let usersState = "idle";
 let authRedirecting = false;
 let logoutTransitionStarted = false;
 const pendingStockOperations = new Set();
@@ -78,6 +80,12 @@ const inventoryValue = document.getElementById("inventoryValue");
 const resultCount = document.getElementById("resultCount");
 const movementList = document.getElementById("movementList");
 const alertsList = document.getElementById("alertsList");
+const usersNavItem = document.getElementById("usersNavItem");
+const usersBody = document.getElementById("usersBody");
+const usersResultCount = document.getElementById("usersResultCount");
+const userSearchInput = document.getElementById("userSearchInput");
+const addUserBtn = document.getElementById("addUserBtn");
+const refreshUsersBtn = document.getElementById("refreshUsersBtn");
 
 const modalBackdrop = document.getElementById("modalBackdrop");
 const itemForm = document.getElementById("itemForm");
@@ -101,6 +109,21 @@ const logoutBtn = document.getElementById("logoutBtn");
 const appBootstrapStatus = document.getElementById("appBootstrapStatus");
 const logoutTransition = document.getElementById("logoutTransition");
 const logoutPhrase = document.getElementById("logoutPhrase");
+
+const userModalBackdrop = document.getElementById("userModalBackdrop");
+const userForm = document.getElementById("userForm");
+const userModalTitle = document.getElementById("userModalTitle");
+const closeUserModalBtn = document.getElementById("closeUserModalBtn");
+const cancelUserBtn = document.getElementById("cancelUserBtn");
+const saveUserBtn = document.getElementById("saveUserBtn");
+const userIdInput = document.getElementById("userId");
+const userEmployeeNumberInput = document.getElementById("userEmployeeNumber");
+const userFullNameInput = document.getElementById("userFullName");
+const userRoleInput = document.getElementById("userRole");
+const userPasswordInput = document.getElementById("userPassword");
+const userPasswordLabel = document.getElementById("userPasswordLabel");
+const userPasswordHelp = document.getElementById("userPasswordHelp");
+const userActiveInput = document.getElementById("userActive");
 
 function getStatus(item) {
   if (Number(item.stock) <= 0) return "out";
@@ -354,6 +377,163 @@ function renderAlerts() {
         `;
       }).join("")
     : '<div class="empty-state">No hay alertas activas. El inventario se encuentra dentro de los mínimos establecidos.</div>';
+}
+
+function renderUsers() {
+  if (!currentPermissions.manageUsers) return;
+
+  if (usersState === "loading") {
+    usersBody.innerHTML = `
+      <tr><td colspan="5"><div class="empty-state">Cargando usuarios...</div></td></tr>
+    `;
+    usersResultCount.textContent = "Cargando...";
+    return;
+  }
+
+  if (usersState === "error") {
+    usersBody.innerHTML = `
+      <tr><td colspan="5"><div class="empty-state error">No fue posible cargar los usuarios.</div></td></tr>
+    `;
+    usersResultCount.textContent = "Sin datos";
+    return;
+  }
+
+  const query = userSearchInput.value.trim().toLowerCase();
+  const filteredUsers = users.filter(user => {
+    const searchable = `${user.numero_colaborador} ${user.nombre} ${user.rol}`.toLowerCase();
+    return searchable.includes(query);
+  });
+
+  usersBody.innerHTML = filteredUsers.length
+    ? filteredUsers.map(user => {
+        const isCurrentUser = user.user_id === currentUser?.id;
+        const statusClass = user.activo ? "ok" : "out";
+        const statusLabel = user.activo ? "Activo" : "Inactivo";
+
+        return `
+          <tr>
+            <td data-label="Colaborador">${escapeHTML(user.numero_colaborador)}</td>
+            <td data-label="Nombre">
+              <span class="item-name">${escapeHTML(user.nombre)}</span>
+              ${isCurrentUser ? '<span class="user-self-label">Tu cuenta</span>' : ""}
+            </td>
+            <td data-label="Rol">${escapeHTML(formatRole(user.rol))}</td>
+            <td data-label="Estado"><span class="badge ${statusClass}">${statusLabel}</span></td>
+            <td data-label="Acciones">
+              <div class="row-actions">
+                <button type="button" class="row-btn" data-user-action="edit" data-user-id="${escapeHTML(user.user_id)}">Editar</button>
+                ${isCurrentUser ? "" : `
+                  <button type="button" class="row-btn danger" data-user-action="delete" data-user-id="${escapeHTML(user.user_id)}">Eliminar</button>
+                `}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("")
+    : '<tr><td colspan="5"><div class="empty-state">No se encontraron usuarios.</div></td></tr>';
+
+  usersResultCount.textContent = `${filteredUsers.length} ${filteredUsers.length === 1 ? "usuario" : "usuarios"}`;
+}
+
+async function cargarUsuarios() {
+  if (!currentPermissions.manageUsers) return false;
+
+  usersState = "loading";
+  renderUsers();
+
+  try {
+    const { data, error } = await supabase
+      .from("perfiles")
+      .select("user_id,numero_colaborador,nombre,rol,activo,created_at")
+      .order("nombre", { ascending: true });
+
+    if (error) throw error;
+
+    users = data || [];
+    usersState = "ready";
+    renderUsers();
+    return true;
+  } catch (error) {
+    console.error("No fue posible cargar los usuarios.", error);
+    users = [];
+    usersState = "error";
+    renderUsers();
+    handlePotentialAuthError(error);
+    return false;
+  }
+}
+
+async function invokeUserAdministration(body) {
+  const { data, error } = await supabase.functions.invoke("admin-usuarios", { body });
+
+  if (error) throw error;
+  if (!data?.ok) {
+    const operationError = new Error(data?.error || "operacion_usuarios_fallida");
+    operationError.userMessage = data?.message;
+    throw operationError;
+  }
+
+  return data;
+}
+
+function openUserModal(user = null) {
+  if (!currentPermissions.manageUsers) return;
+
+  userForm.reset();
+  userIdInput.value = user?.user_id || "";
+  userModalTitle.textContent = user ? "Editar usuario" : "Nuevo usuario";
+  userPasswordLabel.textContent = user ? "Nueva contraseña" : "Contraseña temporal";
+  userPasswordHelp.textContent = user
+    ? "Déjala vacía para conservar la contraseña actual."
+    : "El usuario podrá iniciar sesión con esta contraseña.";
+  userPasswordInput.required = !user;
+  userActiveInput.checked = user ? user.activo === true : true;
+
+  if (user) {
+    userEmployeeNumberInput.value = user.numero_colaborador;
+    userFullNameInput.value = user.nombre;
+    userRoleInput.value = String(user.rol || "consulta").toLowerCase();
+  } else {
+    userRoleInput.value = "consulta";
+  }
+
+  const editingSelf = user?.user_id === currentUser?.id;
+  userRoleInput.disabled = editingSelf;
+  userActiveInput.disabled = editingSelf;
+
+  userModalBackdrop.hidden = false;
+  setTimeout(() => userEmployeeNumberInput.focus(), 50);
+}
+
+function closeUserModal() {
+  if (saveUserBtn.disabled) return;
+  userModalBackdrop.hidden = true;
+}
+
+function setUserSaveBusy(isBusy) {
+  saveUserBtn.disabled = isBusy;
+  cancelUserBtn.disabled = isBusy;
+  closeUserModalBtn.disabled = isBusy;
+  saveUserBtn.textContent = isBusy ? "Guardando..." : "Guardar usuario";
+}
+
+async function deleteUser(userId) {
+  if (!currentPermissions.manageUsers || userId === currentUser?.id) return;
+
+  const user = users.find(item => item.user_id === userId);
+  if (!user) return;
+  if (!confirm(`¿Eliminar el acceso de "${user.nombre}"? Esta acción no se puede deshacer.`)) return;
+
+  try {
+    await invokeUserAdministration({ action: "delete", user_id: userId });
+    await cargarUsuarios();
+    showToast("Usuario eliminado.");
+  } catch (error) {
+    console.error("No fue posible eliminar el usuario.", error);
+    if (!handlePotentialAuthError(error)) {
+      showToast(error.userMessage || "No fue posible eliminar el usuario.");
+    }
+  }
 }
 
 function showToast(message) {
@@ -710,6 +890,63 @@ itemForm.addEventListener("submit", async event => {
   }
 });
 
+userForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!currentPermissions.manageUsers) return;
+
+  const userId = userIdInput.value;
+  const employeeNumber = userEmployeeNumberInput.value.trim();
+  const fullName = userFullNameInput.value.trim();
+  const password = userPasswordInput.value;
+
+  if (!/^\d{1,20}$/.test(employeeNumber)) {
+    showToast("El número de colaborador debe contener únicamente números.");
+    return;
+  }
+
+  if (!fullName) {
+    showToast("Ingresa el nombre completo del usuario.");
+    return;
+  }
+
+  if ((!userId || password) && password.length < 6) {
+    showToast("La contraseña debe tener al menos 6 caracteres.");
+    return;
+  }
+
+  const payload = {
+    action: userId ? "update" : "create",
+    user_id: userId || undefined,
+    numero_colaborador: employeeNumber,
+    nombre: fullName,
+    rol: userRoleInput.value,
+    activo: userActiveInput.checked
+  };
+
+  if (password) payload.password = password;
+  setUserSaveBusy(true);
+
+  try {
+    const result = await invokeUserAdministration(payload);
+
+    if (userId === currentUser?.id && result.profile) {
+      currentProfile = { ...currentProfile, ...result.profile };
+      renderCurrentUser();
+    }
+
+    await cargarUsuarios();
+    userModalBackdrop.hidden = true;
+    showToast(userId ? "Usuario actualizado." : "Usuario creado.");
+  } catch (error) {
+    console.error("No fue posible guardar el usuario.", error);
+    if (!handlePotentialAuthError(error)) {
+      showToast(error.userMessage || "No fue posible guardar el usuario.");
+    }
+  } finally {
+    setUserSaveBusy(false);
+  }
+});
+
 inventoryBody.addEventListener("click", event => {
   const button = event.target.closest("button[data-action]");
   if (!button) return;
@@ -723,17 +960,43 @@ inventoryBody.addEventListener("click", event => {
   if (action === "delete") permanentlyDeleteItem(id);
 });
 
+usersBody.addEventListener("click", event => {
+  const button = event.target.closest("button[data-user-action]");
+  if (!button || !currentPermissions.manageUsers) return;
+
+  const user = users.find(item => item.user_id === button.dataset.userId);
+  if (button.dataset.userAction === "edit" && user) openUserModal(user);
+  if (button.dataset.userAction === "delete") deleteUser(button.dataset.userId);
+});
+
 addItemBtn.addEventListener("click", () => openModal());
 responsiveAddItemBtn.addEventListener("click", () => openModal());
 closeModalBtn.addEventListener("click", closeModal);
 cancelBtn.addEventListener("click", closeModal);
+addUserBtn.addEventListener("click", () => openUserModal());
+closeUserModalBtn.addEventListener("click", closeUserModal);
+cancelUserBtn.addEventListener("click", closeUserModal);
+userSearchInput.addEventListener("input", renderUsers);
+refreshUsersBtn.addEventListener("click", async () => {
+  refreshUsersBtn.disabled = true;
+  refreshUsersBtn.textContent = "Actualizando...";
+  const success = await cargarUsuarios();
+  refreshUsersBtn.disabled = false;
+  refreshUsersBtn.textContent = "Actualizar usuarios";
+  showToast(success ? "Usuarios actualizados." : "No fue posible actualizar los usuarios.");
+});
 
 modalBackdrop.addEventListener("click", event => {
   if (event.target === modalBackdrop) closeModal();
 });
 
+userModalBackdrop.addEventListener("click", event => {
+  if (event.target === userModalBackdrop) closeUserModal();
+});
+
 document.addEventListener("keydown", event => {
   if (event.key === "Escape" && !modalBackdrop.hidden) closeModal();
+  if (event.key === "Escape" && !userModalBackdrop.hidden) closeUserModal();
 });
 
 searchInput.addEventListener("input", renderInventory);
@@ -743,6 +1006,7 @@ statusFilter.addEventListener("change", renderInventory);
 document.querySelectorAll(".nav-item").forEach(button => {
   button.addEventListener("click", () => {
     const view = button.dataset.view;
+    if (view === "usuarios" && !currentPermissions.manageUsers) return;
 
     document.querySelectorAll(".nav-item").forEach(item => item.classList.remove("active"));
     button.classList.add("active");
@@ -753,12 +1017,15 @@ document.querySelectorAll(".nav-item").forEach(button => {
     const titles = {
       inventario: "Inventario de sanidad",
       movimientos: "Movimientos de inventario",
-      alertas: "Alertas de sanidad"
+      alertas: "Alertas de sanidad",
+      usuarios: "Administración de usuarios"
     };
 
     document.getElementById("pageTitle").textContent = titles[view];
+    updateContextualActions(view);
     if (view === "movimientos" && currentUser) cargarMovimientos();
     if (view === "alertas") renderAlerts();
+    if (view === "usuarios") cargarUsuarios();
   });
 });
 
@@ -775,6 +1042,14 @@ function formatRole(role) {
   return ROLE_LABELS[String(role || "").toLowerCase()] || "Consulta";
 }
 
+function updateContextualActions(view) {
+  const showProductAdd = currentPermissions.addProducts && view !== "usuarios";
+  addItemBtn.classList.toggle("permission-hidden", !showProductAdd);
+  responsiveAddAction.classList.toggle("permission-hidden", !showProductAdd);
+  responsiveAddItemBtn.disabled = !showProductAdd;
+  queueResponsiveUiUpdate();
+}
+
 function applyPermissions() {
   const role = String(currentProfile?.rol || "").toLowerCase();
   currentPermissions = ROLE_PERMISSIONS[role] || NO_PERMISSIONS;
@@ -786,10 +1061,10 @@ function applyPermissions() {
     || currentPermissions.deleteProducts;
 
   document.body.classList.toggle("role-readonly", !hasProductActions);
-  addItemBtn.classList.toggle("permission-hidden", !currentPermissions.addProducts);
-  responsiveAddAction.classList.toggle("permission-hidden", !currentPermissions.addProducts);
-  responsiveAddItemBtn.disabled = !currentPermissions.addProducts;
-  queueResponsiveUiUpdate();
+  usersNavItem.classList.toggle("permission-hidden", !currentPermissions.manageUsers);
+
+  const activeView = document.querySelector(".nav-item.active")?.dataset.view || "inventario";
+  updateContextualActions(activeView);
 }
 
 function renderCurrentUser() {
@@ -945,7 +1220,11 @@ let responsiveUiFrame;
 function updateResponsiveUi() {
   responsiveUiFrame = null;
 
-  if (!responsiveLayout.matches || !currentPermissions.addProducts) {
+  if (
+    !responsiveLayout.matches
+    || !currentPermissions.addProducts
+    || responsiveAddAction.classList.contains("permission-hidden")
+  ) {
     if (!responsiveLayout.matches) {
       document.documentElement.style.removeProperty("--responsive-nav-height");
     }
