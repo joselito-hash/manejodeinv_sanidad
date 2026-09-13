@@ -581,6 +581,22 @@ h2 {
   opacity: 0.68;
 }
 
+.notification-entry { position: relative; border-bottom: 1px solid var(--line); }
+.notification-entry .notification-item { border-bottom: 0; padding-right: 44px; }
+.notification-item:disabled { cursor: default; opacity: 0.75; }
+.notification-dismiss {
+  position: absolute; top: 12px; right: 8px; width: 30px; height: 30px;
+  display: grid; place-items: center; border: 0; border-radius: 9px;
+  background: transparent; color: var(--muted); font-size: 23px;
+}
+.notification-dismiss:hover, .notification-dismiss:focus-visible { background: var(--blue-soft); color: var(--blue-dark); }
+.notification-change { display: block; margin-top: 4px; font-size: 12px; color: var(--text); }
+.price-pending-tag {
+  display: block; margin-top: 7px; padding: 5px 8px; border: 1px solid #d9c29c;
+  border-radius: 8px; color: #775925; background: var(--warning-soft);
+  font-size: 11px; font-weight: 600; text-align: left;
+}
+
 .notification-status-dot {
   width: 8px;
   height: 8px;
@@ -1007,6 +1023,9 @@ h2 {
   transform: translateY(-7px) scale(0.985);
   transform-origin: center top;
   pointer-events: none;
+  max-height: min(280px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   transition:
     opacity 150ms ease,
     transform 190ms cubic-bezier(0.2, 0.75, 0.25, 1),
@@ -1019,6 +1038,10 @@ h2 {
   transform: translateY(0) scale(1);
   pointer-events: auto;
   transition-delay: 0s;
+}
+
+.filter-select.opens-up .filter-select-menu {
+  top: auto; bottom: calc(100% + 7px); transform-origin: center bottom;
 }
 
 .filter-select-menu button {
@@ -1562,6 +1585,107 @@ tr:hover td {
 .toast.show {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.sync-toast {
+  position: fixed; z-index: 55; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  width: max-content; max-width: min(470px, calc(100% - 28px)); padding: 15px 22px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
+  color: var(--text); box-shadow: 0 12px 36px #27333b26; font-size: 14px; font-weight: 500;
+  text-align: center; opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translate(-50%, 12px); transition: opacity 220ms ease, transform 220ms ease, visibility 220ms;
+}
+.sync-toast.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+.sync-toast i { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 4px var(--warning-soft); }
+.sync-toast[data-state="live"] i { background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
+body:has(.toast.show) .sync-toast { bottom: 86px; }
+
+body.requisition-open { overflow: hidden; }
+.requisition-dialog {
+  width: min(820px, calc(100% - 32px)); max-width: none; max-height: calc(100dvh - 40px);
+  padding: 0; border: 1px solid var(--line); border-radius: 22px; margin: auto;
+  color: var(--text); background: var(--surface); box-shadow: 0 30px 90px #27333b38;
+  font-family: inherit;
+}
+.requisition-dialog[open] { animation: requisition-enter 180ms ease-out; }
+.requisition-dialog::backdrop { background: #27333b66; backdrop-filter: blur(6px); }
+@keyframes requisition-enter { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.requisition-header { display: flex; align-items: start; justify-content: space-between; gap: 14px; padding: 24px; border-bottom: 1px solid var(--line); }
+.requisition-header p:last-child:not(.eyebrow) { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 8px 0 0; }
+.requisition-header h2 { font-size: 24px; }
+.requisition-form, .requisition-detail { padding: 20px 24px 24px; }
+.requisition-form label:not(.requisition-product) { display: grid; gap: 7px; font-size: 13px; font-weight: 500; }
+.requisition-dialog input, .requisition-dialog textarea {
+  min-width: 0; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line);
+  border-radius: 11px; background: white; color: var(--text); font: inherit; outline: none;
+}
+.requisition-dialog input:focus, .requisition-dialog textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #6f8fa41f; }
+.requisition-dialog textarea { resize: vertical; line-height: 1.5; }
+.requisition-catalog { margin: 14px 0 18px; max-height: min(390px, 40dvh); overflow-y: auto; overscroll-behavior: contain; padding: 0 5px 0 0; }
+.requisition-group { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--blue-dark); margin: 16px 0 9px; }
+.requisition-product { display: grid; grid-template-columns: minmax(0,1fr) 125px; gap: 16px; align-items: center; margin-bottom: 8px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 13px; background: #fff9; }
+.requisition-product[hidden], .requisition-group[hidden] { display: none; }
+.requisition-product.selected { border-color: var(--blue); background: #edf3f6; }
+.requisition-product strong { font-size: 14px; overflow-wrap: anywhere; }
+.requisition-product small { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.requisition-quantity > span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+.requisition-actions { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.requisition-actions > span { font-size: 12px; color: var(--muted); }
+.requisition-actions > div { display: flex; gap: 8px; flex-wrap: wrap; justify-content: end; }
+.requisition-actions button { font-size: 13px; min-height: 42px; }
+.requisition-status { font-size: 13px; margin: 12px 0 0; color: var(--blue-dark); line-height: 1.5; }
+.requisition-status:empty { display: none; }
+.requisition-status.error { color: var(--danger); }
+.requisition-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.requisition-purpose { font-size: 14px; line-height: 1.6; margin: 16px 0; overflow-wrap: anywhere; }
+.requisition-detail-line { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.requisition-detail-line strong { font-size: 14px; overflow-wrap: anywhere; }
+.requisition-detail-line small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
+.requisition-detail-line > div:last-child { text-align: right; }
+.requisition-detail-line > div:last-child > span { display: block; margin-top: 6px; font-size: 14px; }
+.requisition-total { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 18px; border-radius: 13px; background: var(--blue-soft); margin: 12px 0; }
+.requisition-total > span { font-size: 13px; }
+.requisition-total > strong { font-size: 22px; color: var(--blue-dark); }
+.requisition-total > small { grid-column: 1/-1; font-size: 12px; line-height: 1.5; }
+.requisition-approval { font-size: 13px; line-height: 1.6; color: var(--success); margin: 16px 0; }
+.requisition-history { margin-top: 18px; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.requisition-history summary { color: var(--blue-dark); font-size: 13px; cursor: pointer; }
+.requisition-history article { padding: 14px 0 0; font-size: 12px; overflow-wrap: anywhere; }
+.requisition-history small { display: block; margin: 5px 0; color: var(--muted); }
+.requisition-history p { margin: 7px 0; line-height: 1.5; }
+.requisitions-list { display: grid; }
+.requisition-list-item { display: flex; justify-content: space-between; gap: 20px; width: 100%; padding: 20px 24px; border: 0; border-bottom: 1px solid var(--line); text-align: left; background: transparent; color: var(--text); }
+.requisition-list-item:hover { background: #dce7ed55; }
+.requisition-list-copy, .requisition-list-end { display: grid; gap: 8px; }
+.requisition-list-copy > span, .requisition-list-copy small { color: var(--muted); font-size: 12px; }
+.requisition-list-end { justify-items: end; flex-shrink: 0; font-size: 13px; }
+
+@media (max-width: 980px) {
+  .sync-toast { bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .responsive-action-available .sync-toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .inventory-panel { position: relative; z-index: 1; }
+}
+@media (max-width: 600px) {
+  .requisition-dialog { width: calc(100% - 20px); max-height: calc(100dvh - 24px); border-radius: 18px; }
+  .requisition-header { padding: 18px 16px; }
+  .requisition-header h2 { font-size: 21px; }
+  .requisition-form, .requisition-detail { padding: 16px; }
+  .requisition-catalog { max-height: min(300px, 30dvh); }
+  .requisition-product { grid-template-columns: minmax(0,1fr) 100px; padding: 11px; gap: 10px; }
+  .requisition-dialog input, .requisition-dialog textarea { font-size: 16px; }
+  .requisition-product strong { font-size: 13px; }
+  .requisition-actions { align-items: stretch; flex-direction: column; }
+  .requisition-actions > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .requisition-actions .primary-btn { grid-column: 1/-1; }
+  .requisition-list-item { padding: 16px; gap: 12px; }
+  .requisition-list-end { max-width: 45%; font-size: 12px; }
+  .requisition-total { padding: 14px; }
+  .requisition-total > strong { font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sync-toast { transition: none; }
+  .requisition-dialog[open] { animation: none; }
 }
 
 .movement-list {

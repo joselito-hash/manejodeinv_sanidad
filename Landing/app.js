@@ -1,4 +1,5 @@
 import { supabase } from "../supabaseClient.js";
+import { createRequisitionsUI } from "./requisitions.js";
 
 const ROLE_LABELS = {
   administrador: "Administrador",
@@ -77,9 +78,14 @@ let logoutTransitionStarted = false;
 let notificationsOpen = false;
 let realtimeChannel = null;
 let realtimeWasSubscribed = false;
+let realtimeConnected = false;
+let lastSyncState = "";
+let syncToastTimer;
+let passwordInitialOperationId;
 const pendingStockOperations = new Set();
 const readNotificationIds = new Set();
 const realtimeSyncTimers = new Map();
+const queryVersions = { inventory: 0, movements: 0, notifications: 0, users: 0, profile: 0 };
 
 const inventoryBody = document.getElementById("inventoryBody");
 const searchInput = document.getElementById("searchInput");
@@ -148,7 +154,6 @@ const notificationsList = document.getElementById("notificationsList");
 const markNotificationsReadBtn = document.getElementById("markNotificationsReadBtn");
 const viewAlertsBtn = document.getElementById("viewAlertsBtn");
 const notificationFooterLabel = document.getElementById("notificationFooterLabel");
-const changePasswordBtn = document.getElementById("changePasswordBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const realtimeStatusBox = document.getElementById("realtimeStatusBox");
 const realtimeStatus = document.getElementById("realtimeStatus");
@@ -236,7 +241,8 @@ function mapProduct(row) {
     stock: Number(row.existencia || 0),
     minStock: Number(row.stock_minimo || 0),
     unit: row.unidad || "",
-    cost: Number(row.costo || 0)
+    cost: Number(row.costo || 0),
+    pricePending: row.precio_pendiente === true
   };
 }
 
@@ -286,6 +292,19 @@ function stateRow(message, isError = false) {
 function setFilterMenuOpen(control, open) {
   const trigger = control.querySelector(".filter-select-trigger");
   const menu = control.querySelector(".filter-select-menu");
+  if (open) {
+    const rect = trigger.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportTop = viewport?.offsetTop || 0;
+    const viewportBottom = viewportTop + (viewport?.height || window.innerHeight);
+    const navBottom = window.matchMedia("(max-width: 980px)").matches
+      ? sidebar.getBoundingClientRect().bottom : viewportTop;
+    const below = viewportBottom - rect.bottom - 16;
+    const above = rect.top - Math.max(viewportTop, navBottom) - 16;
+    const opensUp = below < Math.min(menu.scrollHeight, 280) && above > below;
+    control.classList.toggle("opens-up", opensUp);
+    menu.style.maxHeight = `${Math.max(60, Math.min(280, opensUp ? above : below))}px`;
+  }
   control.classList.toggle("is-open", open);
   trigger.setAttribute("aria-expanded", String(open));
   menu.setAttribute("aria-hidden", String(!open));
@@ -313,7 +332,7 @@ document.querySelectorAll("[data-filter-select]").forEach(control => {
     closeFilterMenus(control);
     setFilterMenuOpen(control, willOpen);
     if (willOpen) {
-      (options.find(option => option.getAttribute("aria-selected") === "true") || options[0])?.focus();
+      (options.find(option => option.getAttribute("aria-selected") === "true") || options[0])?.focus({ preventScroll: true });
     }
   });
 
@@ -326,14 +345,14 @@ document.querySelectorAll("[data-filter-select]").forEach(control => {
       });
       setFilterMenuOpen(control, false);
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      trigger.focus();
+      trigger.focus({ preventScroll: true });
     });
   });
 
   control.addEventListener("keydown", event => {
     if (event.key === "Escape") {
       setFilterMenuOpen(control, false);
-      trigger.focus();
+      trigger.focus({ preventScroll: true });
       return;
     }
 
@@ -341,7 +360,7 @@ document.querySelectorAll("[data-filter-select]").forEach(control => {
     event.preventDefault();
     const currentIndex = Math.max(options.indexOf(document.activeElement), 0);
     const direction = event.key === "ArrowDown" ? 1 : -1;
-    options[(currentIndex + direction + options.length) % options.length]?.focus();
+    options[(currentIndex + direction + options.length) % options.length]?.focus({ preventScroll: true });
   });
 });
 
@@ -434,6 +453,7 @@ function getStockNotifications() {
 function mapNotification(row) {
   const type = String(row.tipo || "informacion").toLowerCase();
   const data = row.datos && typeof row.datos === "object" ? row.datos : {};
+  const requisition = data.requisicion_id ? requisitionsUI.getSummary(data.requisicion_id) : null;
   const statusByType = {
     ajuste_inventario: "adjustment",
     password_cambiada: "security",
@@ -452,16 +472,20 @@ function mapNotification(row) {
     type,
     status: statusByType[type] || "information",
     title: row.titulo || "Notificación",
-    product: productByType[type] || "Inventario de sanidad",
-    detail: row.mensaje || "",
+    product: data.requisicion_id ? `REQ-${String(data.requisicion_id).slice(0,8).toUpperCase()}`
+      : productByType[type] || data.producto_nombre || "Inventario de sanidad",
+    detail: (row.mensaje || "") + (requisition && currentPermissions.viewInventoryValue
+      ? requisition.total === null ? " Total por calcular: hay precios pendientes."
+        : ` Total estimado: ${formatCurrency(requisition.total)} MXN.` : ""),
     data,
     date: row.created_at || null,
-    read: Boolean(row.leida_at)
+    read: Boolean(row.leida_at),
+    completed: Boolean(row.completada_at) || (type === "bienvenida" && currentProfile?.requiere_cambio_password !== true)
   };
 }
 
 function getVisibleNotifications() {
-  const databaseNotifications = notifications.map(mapNotification);
+  const databaseNotifications = notifications.filter(row => !row.descartada_at).map(mapNotification);
   if (String(currentProfile?.rol || "").toLowerCase() === "administrador") {
     return databaseNotifications;
   }
@@ -517,23 +541,30 @@ function renderNotificationCenter() {
             .format(new Date(notification.date))
           : "";
         return `
+          <div class="notification-entry">
           <button
             type="button"
             class="notification-item ${notification.status}${isRead ? " is-read" : ""}"
             data-notification-id="${escapeHTML(notification.id)}"
             data-notification-source="${escapeHTML(notification.source)}"
+            ${notification.type === "bienvenida" && notification.completed ? 'disabled aria-label="Contraseña personal configurada"' : ''}
           >
             <span class="notification-status-dot" aria-hidden="true"></span>
             <span class="notification-copy">
               <span class="notification-item-heading">
                 <strong>${escapeHTML(notification.title)}</strong>
-                ${isRead ? '<span class="notification-read-label">Leída</span>' : ""}
+                ${notification.completed ? '<span class="notification-read-label">Cumplida</span>' : isRead ? '<span class="notification-read-label">Leída</span>' : ""}
               </span>
               <span class="notification-product">${escapeHTML(notification.product)}</span>
               <span class="notification-detail">${escapeHTML(notification.detail)}</span>
+              ${Array.isArray(notification.data?.cambios) ? notification.data.cambios.map(change =>
+                `<span class="notification-change">${escapeHTML(change.nombre)}: ${formatNumber(change.antes)} → ${formatNumber(change.despues)} ${escapeHTML(change.unidad)}</span>`).join("") : ""}
               ${date ? `<time class="notification-date">${escapeHTML(date)}</time>` : ""}
             </span>
           </button>
+          ${notification.source === "database" && notification.completed
+            ? `<button class="notification-dismiss" type="button" data-dismiss-notification="${notification.databaseId}" aria-label="Quitar notificación cumplida">×</button>` : ""}
+          </div>
         `;
       }).join("")
     : `
@@ -571,10 +602,17 @@ async function markDatabaseNotifications(ids = null) {
     p_ids: ids
   });
   if (error) throw error;
+  notifications.forEach(item => {
+    if (ids && !ids.includes(Number(item.id))) return;
+    item.leida_at ||= new Date().toISOString();
+    if (["ajuste_inventario", "password_cambiada", "requisicion_modificada", "requisicion_aprobada"].includes(item.tipo)) {
+      item.completada_at ||= new Date().toISOString();
+    }
+  });
 }
 
 async function openNotification(notification) {
-  if (!notification) return;
+  if (!notification || (notification.type === "bienvenida" && notification.completed)) return;
 
   try {
     if (notification.source === "database" && !notification.read) {
@@ -594,6 +632,16 @@ async function openNotification(notification) {
 
   if (notification.type === "bienvenida") {
     openPasswordChangeModal(true);
+    return;
+  }
+  if (notification.type === "precio_pendiente" && currentPermissions.editProducts) {
+    const product = inventory.find(item => item.id === String(notification.data.producto_id));
+    if (product) openModal(product);
+    else showToast("Este insumo ya no está disponible.");
+    return;
+  }
+  if (notification.type.startsWith("requisicion_")) {
+    await requisitionsUI.openDetail(notification.data.requisicion_id);
     return;
   }
   if (notification.type === "ajuste_inventario") {
@@ -643,7 +691,8 @@ function renderInventory() {
         return `
           <tr>
             <td data-label="Código"><span class="item-code">${escapeHTML(item.code)}</span></td>
-            <td data-label="Insumo"><span class="item-name">${escapeHTML(item.name)}</span></td>
+            <td data-label="Insumo"><span class="item-name">${escapeHTML(item.name)}</span>
+              ${currentPermissions.editProducts && item.pricePending ? `<button type="button" class="price-pending-tag" data-price-product="${escapeHTML(item.id)}">Asignar precio</button>` : ""}</td>
             <td data-label="Categoría">${escapeHTML(item.category)}</td>
             <td data-label="Existencia">${formatNumber(item.stock)}</td>
             <td data-label="Mínimo">${formatNumber(item.minStock)}</td>
@@ -785,6 +834,7 @@ function renderUsers() {
 }
 
 async function cargarUsuarios({ silent = false } = {}) {
+  const version = ++queryVersions.users;
   if (!currentPermissions.manageUsers) return false;
 
   if (!silent || users.length === 0) {
@@ -800,12 +850,14 @@ async function cargarUsuarios({ silent = false } = {}) {
 
     if (error) throw error;
 
+    if (version !== queryVersions.users) return true;
     users = data || [];
     usersState = "ready";
     renderUsers();
     return true;
   } catch (error) {
     console.error("No fue posible cargar los usuarios.", error);
+    if (version !== queryVersions.users) return true;
     if (!silent || users.length === 0) {
       users = [];
       usersState = "error";
@@ -883,6 +935,8 @@ function setPasswordChangeMessage(message = "", type = "") {
 }
 
 function openPasswordChangeModal(initialSetup = false) {
+  if (currentProfile?.requiere_cambio_password !== true) return;
+  passwordInitialOperationId ||= crypto.randomUUID();
   passwordChangeForm.reset();
   passwordChangeTitle.textContent = initialSetup
     ? "Crea tu contraseña personal"
@@ -922,6 +976,7 @@ function setPasswordChangeBusy(isBusy) {
 
 passwordChangeForm.addEventListener("submit", async event => {
   event.preventDefault();
+  if (savePasswordChangeBtn.disabled || currentProfile?.requiere_cambio_password !== true) return;
   const email = passwordChangeEmail.value.trim().toLowerCase();
   const newPassword = passwordChangeNew.value;
   const confirmation = passwordChangeConfirm.value;
@@ -947,6 +1002,7 @@ passwordChangeForm.addEventListener("submit", async event => {
     const result = await invokeAccountSecurity({
       action: "change-password",
       correo: email,
+      operacion_id: passwordInitialOperationId,
       password: newPassword
     });
     currentProfile = {
@@ -1071,11 +1127,17 @@ function handlePotentialAuthError(error) {
 }
 
 function setRealtimeStatus(state, label) {
+  if (state === lastSyncState) return;
+  lastSyncState = state;
   realtimeStatusBox.dataset.state = state;
   realtimeStatus.textContent = label;
+  realtimeStatusBox.classList.add("show");
+  clearTimeout(syncToastTimer);
+  syncToastTimer = setTimeout(() => realtimeStatusBox.classList.remove("show"), 3600);
 }
 
 async function cargarInventario({ silent = false } = {}) {
+  const version = ++queryVersions.inventory;
   if (!silent || inventory.length === 0) {
     inventoryState = "loading";
     renderInventory();
@@ -1086,12 +1148,14 @@ async function cargarInventario({ silent = false } = {}) {
 
     if (error) throw error;
 
+    if (version !== queryVersions.inventory) return true;
     inventory = (data || []).map(mapProduct);
     inventoryState = "ready";
     renderInventory();
     return true;
   } catch (error) {
     console.error("No fue posible cargar productos desde Supabase.", error);
+    if (version !== queryVersions.inventory) return true;
     if (!silent || inventory.length === 0) {
       inventory = [];
       inventoryState = "error";
@@ -1103,6 +1167,7 @@ async function cargarInventario({ silent = false } = {}) {
 }
 
 async function cargarMovimientos({ silent = false } = {}) {
+  const version = ++queryVersions.movements;
   if (!silent || movements.length === 0) {
     movementsState = "loading";
     renderMovements();
@@ -1115,12 +1180,14 @@ async function cargarMovimientos({ silent = false } = {}) {
 
     if (error) throw error;
 
+    if (version !== queryVersions.movements) return true;
     movements = (data || []).map(mapMovement);
     movementsState = "ready";
     renderMovements();
     return true;
   } catch (error) {
     console.error("No fue posible cargar movimientos desde Supabase.", error);
+    if (version !== queryVersions.movements) return true;
     if (!silent || movements.length === 0) {
       movements = [];
       movementsState = "error";
@@ -1132,6 +1199,7 @@ async function cargarMovimientos({ silent = false } = {}) {
 }
 
 async function cargarNotificaciones({ silent = false } = {}) {
+  const version = ++queryVersions.notifications;
   if (!silent || notifications.length === 0) {
     notificationsState = "loading";
     renderNotificationCenter();
@@ -1140,17 +1208,21 @@ async function cargarNotificaciones({ silent = false } = {}) {
   try {
     const { data, error } = await supabase
       .from("notificaciones")
-      .select("id,tipo,titulo,mensaje,datos,leida_at,created_at")
+      .select("id,tipo,titulo,mensaje,datos,leida_at,completada_at,descartada_at,created_at")
+      .is("descartada_at", null)
+      .order("completada_at", { ascending: true, nullsFirst: true })
       .order("created_at", { ascending: false })
       .limit(75);
     if (error) throw error;
 
+    if (version !== queryVersions.notifications) return true;
     notifications = data || [];
     notificationsState = "ready";
     renderNotificationCenter();
     return true;
   } catch (error) {
     console.error("No fue posible cargar las notificaciones.", error);
+    if (version !== queryVersions.notifications) return true;
     if (!silent || notifications.length === 0) {
       notifications = [];
       notificationsState = "error";
@@ -1162,6 +1234,7 @@ async function cargarNotificaciones({ silent = false } = {}) {
 }
 
 async function refreshCurrentProfile() {
+  const version = ++queryVersions.profile;
   if (!currentUser) return false;
 
   try {
@@ -1178,8 +1251,10 @@ async function refreshCurrentProfile() {
       return false;
     }
 
+    if (version !== queryVersions.profile) return true;
     const previousRole = currentProfile?.rol;
     currentProfile = profile;
+    if (!profile.requiere_cambio_password && !savePasswordChangeBtn.disabled) closePasswordChangeModal();
     renderCurrentUser();
     applyPermissions();
     renderInventory();
@@ -1204,7 +1279,8 @@ async function refreshAllData({ silent = false } = {}) {
   const tasks = [
     cargarInventario({ silent }),
     cargarMovimientos({ silent }),
-    cargarNotificaciones({ silent })
+    cargarNotificaciones({ silent }),
+    requisitionsUI.load()
   ];
   if (currentPermissions.manageUsers) tasks.push(cargarUsuarios({ silent }));
   const results = await Promise.all(tasks);
@@ -1223,6 +1299,10 @@ function openModal(item = null) {
   stockField.hidden = Boolean(item);
   stockInput.disabled = Boolean(item);
   stockInput.required = !item;
+  const costInput = document.getElementById("cost");
+  document.getElementById("costField").hidden = !currentPermissions.editProducts;
+  costInput.disabled = !currentPermissions.editProducts;
+  costInput.required = currentPermissions.editProducts;
 
   if (item) {
     document.getElementById("itemId").value = item.id;
@@ -1231,7 +1311,7 @@ function openModal(item = null) {
     document.getElementById("category").value = item.category;
     document.getElementById("minStock").value = item.minStock;
     document.getElementById("unit").value = item.unit;
-    document.getElementById("cost").value = item.cost;
+    document.getElementById("cost").value = item.pricePending ? "" : item.cost;
   }
 
   modalBackdrop.hidden = false;
@@ -1313,7 +1393,7 @@ async function permanentlyDeleteItem(id) {
     console.error("No fue posible eliminar físicamente el producto.", error);
 
     if (String(error?.code || "") === "23503") {
-      showToast("No se puede eliminar: el producto tiene movimientos registrados.");
+      showToast("No se puede eliminar: el insumo tiene movimientos o requisiciones registrados.");
     } else if (!handlePotentialAuthError(error)) {
       showToast("No fue posible eliminar definitivamente el producto.");
     }
@@ -1475,6 +1555,7 @@ stockOperationForm.addEventListener("submit", async event => {
 
 itemForm.addEventListener("submit", async event => {
   event.preventDefault();
+  if (saveItemBtn.disabled) return;
 
   const id = document.getElementById("itemId").value;
   if (id && !currentPermissions.editProducts) return;
@@ -1486,9 +1567,12 @@ itemForm.addEventListener("submit", async event => {
     nombre: document.getElementById("name").value.trim(),
     categoria: document.getElementById("category").value,
     stock_minimo: Number(document.getElementById("minStock").value),
-    unidad: document.getElementById("unit").value.trim(),
-    costo: Number(document.getElementById("cost").value)
+    unidad: document.getElementById("unit").value.trim()
   };
+  if (currentPermissions.editProducts) {
+    data.costo = Number(document.getElementById("cost").value);
+    if (!Number.isFinite(data.costo) || data.costo <= 0) { showToast("Ingresa un precio mayor que cero."); return; }
+  }
 
   const duplicate = inventory.find(item =>
     item.code.toLowerCase() === data.codigo.toLowerCase() && item.id !== id
@@ -1655,8 +1739,17 @@ usersBody.addEventListener("click", event => {
   if (button.dataset.userAction === "delete") deleteUser(button.dataset.userId);
 });
 
-addItemBtn.addEventListener("click", () => openModal());
-responsiveAddItemBtn.addEventListener("click", () => openModal());
+function openContextualProductAction() {
+  const view = document.querySelector(".nav-item.active")?.dataset.view;
+  if (view === "alertas" || view === "requisiciones") requisitionsUI.openNew();
+  else openModal();
+}
+addItemBtn.addEventListener("click", openContextualProductAction);
+responsiveAddItemBtn.addEventListener("click", openContextualProductAction);
+inventoryBody.addEventListener("click", event => {
+  const button = event.target.closest("[data-price-product]");
+  if (button) openModal(inventory.find(item => item.id === button.dataset.priceProduct));
+});
 closeModalBtn.addEventListener("click", closeModal);
 cancelBtn.addEventListener("click", closeModal);
 closeStockOperationBtn.addEventListener("click", closeStockOperation);
@@ -1691,6 +1784,8 @@ markNotificationsReadBtn.addEventListener("click", async () => {
   renderNotificationCenter();
 });
 notificationsList.addEventListener("click", event => {
+  const dismiss = event.target.closest("[data-dismiss-notification]");
+  if (dismiss) { dismissNotification(dismiss); return; }
   const button = event.target.closest("[data-notification-id]");
   if (!button) return;
   const notification = getVisibleNotifications()
@@ -1698,7 +1793,6 @@ notificationsList.addEventListener("click", event => {
   openNotification(notification);
 });
 viewAlertsBtn.addEventListener("click", openNotificationFooter);
-changePasswordBtn.addEventListener("click", () => openPasswordChangeModal(false));
 addUserBtn.addEventListener("click", () => openUserModal());
 responsiveAddUserBtn.addEventListener("click", () => openUserModal());
 closeUserModalBtn.addEventListener("click", closeUserModal);
@@ -1761,11 +1855,15 @@ document.querySelectorAll(".nav-item").forEach(button => {
       inventario: "Inventario de sanidad",
       movimientos: "Movimientos de inventario",
       alertas: "Alertas de sanidad",
+      requisiciones: "Requisiciones de insumos",
       usuarios: "Administración de usuarios"
     };
 
     document.getElementById("pageTitle").textContent = titles[view];
     updateContextualActions(view);
+    closeFilterMenus();
+    setNotificationsOpen(false);
+    if (view === "requisiciones") requisitionsUI.load();
     if (view === "movimientos" && movementsState === "idle") cargarMovimientos();
     if (view === "alertas") renderAlerts();
     if (view === "usuarios" && usersState === "idle") cargarUsuarios();
@@ -1781,6 +1879,9 @@ function updateContextualActions(view) {
     && view !== "usuarios"
     && view !== "movimientos";
   const showUserAdd = currentPermissions.manageUsers && view === "usuarios";
+  const actionText = (view === "alertas" || view === "requisiciones") ? "Solicitar requisición" : "+ Nuevo insumo";
+  addItemBtn.textContent = actionText;
+  responsiveAddItemBtn.textContent = actionText;
 
   addItemBtn.classList.toggle("permission-hidden", !showProductAdd);
   responsiveAddAction.classList.toggle("permission-hidden", !showProductAdd);
@@ -1908,9 +2009,18 @@ function scheduleRealtimeSync(key, task, delay = 140) {
   realtimeSyncTimers.set(key, setTimeout(async () => {
     realtimeSyncTimers.delete(key);
     try {
-      await task();
+      const success = await task();
+      if (success === false) {
+        setRealtimeStatus("reconnecting", "Sincronización interrumpida. Reintentando…");
+        if (!authRedirecting && !document.hidden && navigator.onLine && realtimeConnected) {
+          scheduleRealtimeSync("datos-reintento", syncAndReport, 5000);
+        }
+      } else if (lastSyncState === "reconnecting" && realtimeConnected && key !== "datos-reintento") {
+        scheduleRealtimeSync("datos-reintento", syncAndReport, 100);
+      }
     } catch (error) {
       console.error(`No fue posible sincronizar ${key}.`, error);
+      setRealtimeStatus("reconnecting", "Sincronización interrumpida. Reconectando…");
     }
   }, delay));
 }
@@ -1934,7 +2044,8 @@ function scheduleNotificationsSync() {
 
 function handleRealtimeInvalidation(payload) {
   const entity = String(payload?.new?.entidad || "").toLowerCase();
-  if (entity === "productos") scheduleInventorySync();
+  if (entity === "productos") { scheduleInventorySync(); scheduleRealtimeSync("requisiciones", () => requisitionsUI.load()); }
+  if (entity === "requisiciones") scheduleRealtimeSync("requisiciones", () => requisitionsUI.load());
   if (entity === "movimientos") scheduleMovementsSync();
   if (entity === "perfiles") scheduleUsersSync();
   if (entity === "perfil_actual") {
@@ -1977,32 +2088,46 @@ function initializeRealtimeSubscriptions() {
       if (status === "SUBSCRIBED") {
         const reconnecting = realtimeWasSubscribed;
         realtimeWasSubscribed = true;
-        setRealtimeStatus("live", "En tiempo real");
+        realtimeConnected = true;
         scheduleRealtimeSync(
           reconnecting ? "reconexion" : "suscripcion-inicial",
-          () => refreshAllData({ silent: true }),
+          syncAndReport,
           reconnecting ? 60 : 220
         );
         return;
       }
 
       if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status) && !authRedirecting) {
-        setRealtimeStatus("reconnecting", "Reconectando…");
+        realtimeConnected = false;
+        setRealtimeStatus("reconnecting", "Se perdió la sincronización. Reconectando…");
       }
     });
 }
 
 function resyncVisibleApplication() {
   if (!currentUser || authRedirecting || document.hidden) return;
-  setRealtimeStatus(realtimeWasSubscribed ? "live" : "connecting", realtimeWasSubscribed
-    ? "En tiempo real"
-    : "Conectando…");
-  scheduleRealtimeSync("retorno", () => refreshAllData({ silent: true }), 80);
+  scheduleRealtimeSync("retorno", syncAndReport, 80);
   scheduleRealtimeSync("perfil-retorno", refreshCurrentProfile, 80);
 }
 
 document.addEventListener("visibilitychange", resyncVisibleApplication);
-window.addEventListener("online", resyncVisibleApplication);
+window.addEventListener("online", async () => {
+  if (!currentUser || authRedirecting) return;
+  await removeRealtimeChannel();
+  initializeRealtimeSubscriptions();
+  resyncVisibleApplication();
+});
+window.addEventListener("offline", () => {
+  realtimeConnected = false;
+  setRealtimeStatus("reconnecting", "Sin conexión. Tus datos pueden estar desactualizados.");
+});
+
+async function syncAndReport() {
+  const ok = await refreshAllData({ silent: true });
+  setRealtimeStatus(ok && realtimeConnected ? "live" : "reconnecting", ok && realtimeConnected
+    ? "Datos sincronizados en tiempo real" : "Sincronización interrumpida. Reconectando…");
+  return ok;
+}
 
 async function initializeApplication() {
   appBootstrapStatus.setAttribute("aria-label", "Verificando sesión");
@@ -2050,9 +2175,6 @@ async function initializeApplication() {
     initializeRealtimeSubscriptions();
     await refreshAllData();
     revealApplication();
-    if (profile.requiere_cambio_password === true) {
-      setTimeout(() => openPasswordChangeModal(true), 520);
-    }
   } catch (error) {
     console.error("No fue posible iniciar la aplicación.", error);
     showFatalError("No fue posible cargar el inventario.");
@@ -2113,9 +2235,9 @@ function queueResponsiveUiUpdate() {
 }
 
 function closeNotificationsFromPageGesture(event) {
-  if (!notificationsOpen) return;
-
   const target = event.target;
+  if (!(target instanceof Element) || !target.closest(".filter-select-menu")) closeFilterMenus();
+  if (!notificationsOpen) return;
   if (target instanceof Element && target.closest(".notification-panel")) return;
 
   setNotificationsOpen(false);
@@ -2140,12 +2262,30 @@ document.addEventListener("wheel", closeNotificationsFromPageGesture, {
 window.visualViewport?.addEventListener("scroll", () => {
   if (notificationsOpen) setNotificationsOpen(false);
 });
-window.addEventListener("resize", queueResponsiveUiUpdate);
+window.addEventListener("resize", () => { closeFilterMenus(); queueResponsiveUiUpdate(); });
 responsiveLayout.addEventListener("change", queueResponsiveUiUpdate);
 
 if ("ResizeObserver" in window) {
   new ResizeObserver(queueResponsiveUiUpdate).observe(sidebar);
 }
+
+async function dismissNotification(button) {
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const { error } = await supabase.rpc("descartar_notificacion", { p_id: Number(button.dataset.dismissNotification) });
+    if (error) throw error;
+    await cargarNotificaciones({ silent: true });
+  } catch (error) {
+    console.error("No fue posible quitar el aviso.", error);
+    showToast("Solo se pueden quitar notificaciones cumplidas.");
+    button.disabled = false;
+  }
+}
+
+const requisitionsUI = createRequisitionsUI({ supabase, getInventory: () => inventory,
+  getProfile: () => currentProfile, showToast, openProduct: openModal,
+  onChange: () => cargarNotificaciones({ silent: true }), onLoad: renderNotificationCenter });
 
 renderInventory();
 renderMovements();

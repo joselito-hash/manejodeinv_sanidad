@@ -46,6 +46,7 @@
         <button class="nav-item" data-view="alertas">
           <span>Alertas</span>
         </button>
+        <button class="nav-item" data-view="requisiciones"><span>Requisiciones</span></button>
         <button id="usersNavItem" class="nav-item permission-hidden" data-view="usuarios">
           <span>Usuarios</span>
         </button>
@@ -124,10 +125,6 @@
                 </section>
               </div>
 
-              <button id="changePasswordBtn" class="text-btn security-btn" type="button">
-                Contraseña
-              </button>
-
               <button id="logoutBtn" class="text-btn logout-btn" type="button">
                 Cerrar sesión
               </button>
@@ -135,10 +132,6 @@
           </div>
 
           <div class="topbar-action-row">
-            <div id="realtimeStatusBox" class="date-box realtime-status-box" data-state="connecting">
-              <span>Sincronización</span>
-              <strong><i aria-hidden="true"></i><span id="realtimeStatus">Conectando…</span></strong>
-            </div>
             <button id="addItemBtn" class="primary-btn">+ Nuevo insumo</button>
           </div>
         </div>
@@ -268,6 +261,14 @@
             </div>
           </div>
           <div id="alertsList" class="alerts-grid"></div>
+        </section>
+      </section>
+
+      <section id="requisicionesView" class="view">
+        <section class="panel">
+          <div class="panel-header"><div><p class="eyebrow">ABASTECIMIENTO</p><h2>Requisiciones</h2>
+            <p class="panel-description">Seguimiento de solicitudes y autorizaciones.</p></div></div>
+          <div id="requisitionsList" class="requisitions-list"></div>
         </section>
       </section>
 
@@ -411,9 +412,9 @@
           <input id="unit" required placeholder="L, kg, pza, caja..." />
         </label>
 
-        <label>
+        <label id="costField">
           <span>Costo unitario estimado</span>
-          <input id="cost" required type="number" min="0" step="0.01" />
+          <input id="cost" required type="number" min="0.01" step="0.01" />
         </label>
 
         <div class="form-actions">
@@ -518,6 +519,9 @@
   </div>
 
   <div id="toast" class="toast" aria-live="polite"></div>
+  <div id="realtimeStatusBox" class="sync-toast" data-state="connecting" role="status" aria-live="polite">
+    <i aria-hidden="true"></i><span id="realtimeStatus"></span>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
