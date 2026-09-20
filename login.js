@@ -28,7 +28,7 @@ const forgotNewPassword = document.getElementById("forgotNewPassword");
 const forgotConfirmPassword = document.getElementById("forgotConfirmPassword");
 const forgotRequestBtn = document.getElementById("forgotRequestBtn");
 const forgotVerifyBtn = document.getElementById("forgotVerifyBtn");
-const forgotBackBtn = document.getElementById("forgotBackBtn");
+const forgotSuccess = document.getElementById("forgotSuccess");
 const forgotMessage = document.getElementById("forgotMessage");
 
 let currentSlide = 0;
@@ -253,10 +253,13 @@ function setRecoveryStep(step) {
 }
 
 function resetRecoveryState() {
+  forgotModal.classList.remove("recovery-complete", "is-leaving");
+  forgotModal.querySelector("[role='dialog']").setAttribute("aria-labelledby", "forgotTitle");
+  forgotSuccess.hidden = true;
+  closeForgotModal.disabled = false;
   recoveryCompleted = false;
   recoveryOperationId = null;
   forgotVerifyBtn.disabled = false;
-  forgotBackBtn.disabled = false;
   forgotVerifyBtn.textContent = "Cambiar contraseña";
   forgotRequestForm.reset();
   forgotVerifyForm.reset();
@@ -307,12 +310,6 @@ forgotPassword.addEventListener("click", event => {
 });
 
 closeForgotModal.addEventListener("click", closeModal);
-forgotBackBtn.addEventListener("click", () => {
-  if (recoveryBusy || recoveryCompleted) return;
-  forgotVerifyForm.reset();
-  recoveryOperationId = null;
-  setRecoveryStep("request");
-});
 
 forgotRequestForm.addEventListener("submit", async event => {
   event.preventDefault();
@@ -376,7 +373,6 @@ forgotVerifyForm.addEventListener("submit", async event => {
 
   recoveryBusy = true;
   forgotVerifyBtn.disabled = true;
-  forgotBackBtn.disabled = true;
   forgotVerifyBtn.textContent = "Actualizando…";
   setRecoveryMessage();
 
@@ -395,18 +391,26 @@ forgotVerifyForm.addEventListener("submit", async event => {
     forgotCode.value = "";
     loginMessage.textContent = "Contraseña actualizada. Ya puedes iniciar sesión.";
     loginMessage.className = "login-message success";
-    setRecoveryMessage(
-      result.email_warning
-        ? "Contraseña actualizada. No se pudo enviar el correo de confirmación; el incidente quedó registrado."
-        : "Contraseña actualizada. Enviamos una confirmación a tu correo.",
-      "success"
-    );
+    forgotVerifyForm.hidden = true;
+    forgotSuccess.hidden = false;
+    forgotSuccess.querySelector("h3").id = "forgotSuccessTitle";
+    forgotModal.querySelector("[role='dialog']").setAttribute("aria-labelledby", "forgotSuccessTitle");
+    forgotModal.classList.add("recovery-complete");
+    closeForgotModal.disabled = true;
+    forgotSuccess.focus({ preventScroll: true });
+    setRecoveryMessage(result.email_warning
+      ? "La contraseña sí se cambió, pero no se pudo enviar el correo de confirmación."
+      : "", result.email_warning ? "error" : "success");
     password.value = "";
     setTimeout(() => {
-      recoveryBusy = false;
-      closeModal();
-      password.focus();
-    }, 1700);
+      forgotModal.classList.add("is-leaving");
+      const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      setTimeout(() => {
+        recoveryBusy = false;
+        closeModal();
+        password.focus();
+      }, reduceMotion ? 0 : 360);
+    }, result.email_warning ? 5000 : 3000);
   } catch (error) {
     console.error("No fue posible completar la recuperación.", error);
     setRecoveryMessage(error.userMessage || "No pudimos confirmar el resultado. Intenta nuevamente para verificar la operación.", "error");
@@ -414,7 +418,6 @@ forgotVerifyForm.addEventListener("submit", async event => {
     if (!forgotModal.hidden && !recoveryCompleted) {
       recoveryBusy = false;
       forgotVerifyBtn.disabled = false;
-      forgotBackBtn.disabled = false;
       forgotVerifyBtn.textContent = "Cambiar contraseña";
     }
   }

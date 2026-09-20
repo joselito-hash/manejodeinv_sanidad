@@ -653,7 +653,7 @@ body.modal-open {
 
 .recovery-actions {
   display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
+  grid-template-columns: 1fr;
   gap: 10px;
 }
 
@@ -676,6 +676,73 @@ body.modal-open {
 
 .recovery-message.error {
   color: var(--danger);
+}
+
+#forgotModal {
+  transition: opacity 360ms ease, backdrop-filter 360ms ease;
+}
+
+#forgotModal.is-leaving {
+  opacity: 0;
+  backdrop-filter: blur(0);
+  pointer-events: none;
+}
+
+.recovery-complete .recovery-modal > .eyebrow,
+.recovery-complete #forgotTitle,
+.recovery-complete #forgotDescription,
+.recovery-complete #closeForgotModal {
+  display: none;
+}
+
+.recovery-success {
+  padding: 18px 0 8px;
+  text-align: center;
+  animation: recovery-success-enter 450ms ease-out both;
+}
+
+.recovery-success[hidden] { display: none; }
+
+.recovery-success:focus { outline: none; }
+
+.recovery-success-icon {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 20px;
+  color: var(--success);
+}
+
+.recovery-success-icon circle {
+  fill: color-mix(in srgb, var(--success) 10%, transparent);
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.recovery-success-icon path {
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 50;
+  animation: recovery-check 600ms ease-out both;
+}
+
+.recovery-success h3 { line-height: 1.3; }
+.recovery-success-return { color: var(--muted); font-size: 12px; }
+
+@keyframes recovery-success-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes recovery-check {
+  from { stroke-dashoffset: 50; }
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #forgotModal { transition: none; }
+  .recovery-success, .recovery-success-icon path { animation: none; }
 }
 
 .recovery-form button:disabled,

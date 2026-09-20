@@ -210,11 +210,19 @@
         </div>
 
         <div class="recovery-actions">
-          <button id="forgotBackBtn" class="secondary-button" type="button">Corregir datos</button>
           <button id="forgotVerifyBtn" class="login-button" type="submit">Cambiar contraseña</button>
         </div>
       </form>
 
+      <div id="forgotSuccess" class="recovery-success" role="status" tabindex="-1" hidden>
+        <svg class="recovery-success-icon" viewBox="0 0 72 72" fill="none" aria-hidden="true">
+          <circle cx="36" cy="36" r="32" />
+          <path d="m22 36 10 10 19-21" />
+        </svg>
+        <h3>Su contraseña ha sido cambiada con éxito</h3>
+        <p>Ya puede iniciar sesión con su nueva contraseña.</p>
+        <span class="recovery-success-return">Volviendo al inicio de sesión…</span>
+      </div>
       <div id="forgotMessage" class="recovery-message" role="status"></div>
     </div>
   </div>
