@@ -35,6 +35,8 @@ let currentSlide = 0;
 let carouselTimer;
 let welcomeTransitionStarted = false;
 let recoveryBusy = false;
+let recoveryCompleted = false;
+let recoveryOperationId = null;
 
 function getEmployeeNumberFromUser(user, fallback = "") {
   return fallback || String(user?.email || "").split("@")[0];
@@ -251,6 +253,11 @@ function setRecoveryStep(step) {
 }
 
 function resetRecoveryState() {
+  recoveryCompleted = false;
+  recoveryOperationId = null;
+  forgotVerifyBtn.disabled = false;
+  forgotBackBtn.disabled = false;
+  forgotVerifyBtn.textContent = "Cambiar contraseña";
   forgotRequestForm.reset();
   forgotVerifyForm.reset();
   forgotEmployeeNumber.value = employeeNumber.value.trim();
@@ -300,10 +307,16 @@ forgotPassword.addEventListener("click", event => {
 });
 
 closeForgotModal.addEventListener("click", closeModal);
-forgotBackBtn.addEventListener("click", () => setRecoveryStep("request"));
+forgotBackBtn.addEventListener("click", () => {
+  if (recoveryBusy || recoveryCompleted) return;
+  forgotVerifyForm.reset();
+  recoveryOperationId = null;
+  setRecoveryStep("request");
+});
 
 forgotRequestForm.addEventListener("submit", async event => {
   event.preventDefault();
+  if (recoveryBusy) return;
   const numeroColaborador = forgotEmployeeNumber.value.trim();
   const correo = forgotEmail.value.trim().toLowerCase();
 
@@ -328,6 +341,7 @@ forgotRequestForm.addEventListener("submit", async event => {
       correo
     });
     setRecoveryStep("verify");
+    recoveryOperationId = crypto.randomUUID();
     setRecoveryMessage(result.message || "Si los datos coinciden, recibirás un código por correo.", "success");
   } catch (error) {
     console.error("No fue posible solicitar la recuperación.", error);
@@ -341,6 +355,7 @@ forgotRequestForm.addEventListener("submit", async event => {
 
 forgotVerifyForm.addEventListener("submit", async event => {
   event.preventDefault();
+  if (recoveryBusy || recoveryCompleted) return;
   const code = forgotCode.value.trim();
   const newPassword = forgotNewPassword.value;
   const confirmation = forgotConfirmPassword.value;
@@ -371,13 +386,18 @@ forgotVerifyForm.addEventListener("submit", async event => {
       numero_colaborador: forgotEmployeeNumber.value.trim(),
       correo: forgotEmail.value.trim().toLowerCase(),
       codigo: code,
+      operacion_id: recoveryOperationId ||= crypto.randomUUID(),
       password: newPassword
     });
+    recoveryCompleted = true;
+    forgotNewPassword.value = "";
+    forgotConfirmPassword.value = "";
+    forgotCode.value = "";
     loginMessage.textContent = "Contraseña actualizada. Ya puedes iniciar sesión.";
     loginMessage.className = "login-message success";
     setRecoveryMessage(
       result.email_warning
-        ? "Contraseña actualizada. El correo de confirmación quedó registrado como pendiente."
+        ? "Contraseña actualizada. No se pudo enviar el correo de confirmación; el incidente quedó registrado."
         : "Contraseña actualizada. Enviamos una confirmación a tu correo.",
       "success"
     );
@@ -389,9 +409,9 @@ forgotVerifyForm.addEventListener("submit", async event => {
     }, 1700);
   } catch (error) {
     console.error("No fue posible completar la recuperación.", error);
-    setRecoveryMessage(error.userMessage || "El código no es válido o ya venció.", "error");
+    setRecoveryMessage(error.userMessage || "No pudimos confirmar el resultado. Intenta nuevamente para verificar la operación.", "error");
   } finally {
-    if (!forgotModal.hidden) {
+    if (!forgotModal.hidden && !recoveryCompleted) {
       recoveryBusy = false;
       forgotVerifyBtn.disabled = false;
       forgotBackBtn.disabled = false;
