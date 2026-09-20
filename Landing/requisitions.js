@@ -139,7 +139,7 @@ export function createRequisitionsUI({ supabase, getInventory, getProfile, showT
         <p class="requisition-status" role="status"></p>
         <footer class="requisition-actions"><span id="requisitionSelection"></span><div>
           <button class="secondary-btn" type="button" data-action="${modifying ? "detail" : "close"}">Cancelar</button>
-          <button class="primary-btn" type="submit">${modifying ? "Guardar cambios y PDF" : "Enviar solicitud"}</button></div></footer>
+          <button class="primary-btn" type="submit">${modifying ? "Guardar cambios" : "Enviar solicitud"}</button></div></footer>
       </form>`;
     updateSelection();
   }
@@ -179,7 +179,6 @@ export function createRequisitionsUI({ supabase, getInventory, getProfile, showT
           <p>${esc(h.motivo)}</p>${(h.cambios || []).map(c => `<p>${esc(c.nombre)}: ${number(c.antes)} → ${number(c.despues)} ${esc(c.unidad)}</p>`).join("")}</article>`).join("")}</details>
         <p class="requisition-status" role="status"></p>
         <footer class="requisition-actions"><button class="secondary-btn" type="button" data-action="close">Cerrar</button><div>
-          ${isAdmin() ? '<button class="secondary-btn" type="button" data-action="pdf">Descargar PDF</button>' : ""}
           ${editable ? `<button class="secondary-btn" type="button" data-action="edit">Modificar</button>
             <button class="primary-btn" type="button" data-action="approve" ${!hasPrices ? 'disabled data-locked="true"' : ""}>Aprobar y descargar PDF</button>` : ""}</div></footer></div>`;
   }
@@ -187,7 +186,7 @@ export function createRequisitionsUI({ supabase, getInventory, getProfile, showT
     try { await downloadRequisitionPdf(current); }
     catch (error) {
       console.error("No fue posible generar el PDF.", error);
-      status("La requisición está guardada. No se pudo descargar el PDF; usa Descargar PDF para reintentar.", true);
+      status("La requisición quedó aprobada, pero no se pudo descargar el PDF.", true);
     }
   }
   async function saveEditor() {
@@ -207,7 +206,6 @@ export function createRequisitionsUI({ supabase, getInventory, getProfile, showT
       mode = "detail";
       renderDetail(); setBusy(true);
       showToast(modifying ? "Cambios guardados. El solicitante recibirá el detalle." : "Solicitud enviada a administración.");
-      if (modifying) await pdf();
       await Promise.all([load(), onChange()]);
     } catch (error) { console.error(error); status(errorMessage(error), true); }
     finally { setBusy(false); }
@@ -243,7 +241,6 @@ export function createRequisitionsUI({ supabase, getInventory, getProfile, showT
       mode = "edit"; quantities = new Map(current.items.map(item => [String(item.producto_id), item.cantidad])); renderEditor();
     }
     if (action === "approve") approve();
-    if (action === "pdf" && isAdmin()) { setBusy(true); pdf().finally(() => setBusy(false)); }
     if (action === "price" && isAdmin()) {
       const item = getInventory().find(product => String(product.id) === button.dataset.product);
       close();
