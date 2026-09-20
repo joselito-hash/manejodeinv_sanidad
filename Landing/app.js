@@ -1972,8 +1972,18 @@ function startLogoutTransition() {
   });
 }
 
+let logoutConfirmationPending = false;
+
 logoutBtn.addEventListener("click", async () => {
-  if (logoutTransitionStarted) return;
+  if (logoutTransitionStarted || logoutConfirmationPending) return;
+  logoutConfirmationPending = true;
+  const confirmed = await requestConfirmation({
+    title: "Cerrar sesión",
+    message: "¿Quieres cerrar sesión?",
+    confirmLabel: "Sí, cerrar sesión"
+  });
+  logoutConfirmationPending = false;
+  if (!confirmed) return;
   logoutTransitionStarted = true;
   authRedirecting = true;
   logoutBtn.disabled = true;
